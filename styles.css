@@ -1,0 +1,164 @@
+/* WorkPulse: Employee Performance Review System - UI/UX Styling */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@500;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #1E293B;
+}
+
+/* Main Top Header */
+.workpulse-header {
+    background: linear-gradient(135deg, #172B4D 0%, #1E3A8A 60%, #2563EB 100%);
+    padding: 24px 30px;
+    border-radius: 14px;
+    color: #FFFFFF;
+    margin-bottom: 24px;
+    box-shadow: 0 8px 20px -4px rgba(23, 43, 77, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.workpulse-title {
+    font-family: 'Poppins', sans-serif;
+    font-size: 2.1rem;
+    font-weight: 700;
+    margin: 0;
+    color: #FFFFFF;
+    letter-spacing: -0.02em;
+}
+
+.workpulse-tagline {
+    font-size: 1.05rem;
+    color: #93C5FD;
+    margin-top: 5px;
+    margin-bottom: 0;
+    font-weight: 500;
+}
+
+/* KPI Metric Cards */
+.kpi-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 18px 14px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.kpi-card:hover {
+    transform: translateY(-2px);
+    border-color: #2563EB;
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.12);
+}
+
+.kpi-value {
+    font-family: 'Poppins', sans-serif;
+    font-size: 1.85rem;
+    font-weight: 700;
+    color: #172B4D;
+    line-height: 1.2;
+}
+
+.kpi-label {
+    font-size: 0.8rem;
+    color: #64748B;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    margin-top: 5px;
+}
+
+/* Status Badges */
+.badge-high {
+    background-color: #CCFBF1;
+    color: #0F766E;
+    border: 1px solid #14B8A6;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    display: inline-block;
+}
+
+.badge-moderate {
+    background-color: #FEF3C7;
+    color: #B45309;
+    border: 1px solid #F59E0B;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    display: inline-block;
+}
+
+.badge-support {
+    background-color: #FEE2E2;
+    color: #B91C1C;
+    border: 1px solid #EF4444;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    display: inline-block;
+}
+
+/* Card Containers */
+.content-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 22px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
+/* Notice & Disclaimer Boxes */
+.notice-box {
+    background-color: #EFF6FF;
+    border-left: 4px solid #2563EB;
+    border-radius: 8px;
+    padding: 14px 18px;
+    color: #1E3A8A;
+    font-size: 0.92rem;
+    margin: 15px 0;
+}
+
+.warning-box {
+    background-color: #FFFBEB;
+    border-left: 4px solid #F59E0B;
+    border-radius: 8px;
+    padding: 14px 18px;
+    color: #92400E;
+    font-size: 0.92rem;
+    margin: 15px 0;
+}
+
+/* Sidebar Customization */
+[data-testid="stSidebar"] {
+    background-color: #172B4D !important;
+    border-right: 1px solid #1E293B;
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] span,
+[data-testid="stSidebar"] label {
+    color: #F1F5F9 !important;
+}
+
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
+    color: #FFFFFF !important;
+}
+
+/* Button Styling */
+.stButton>button {
+    border-radius: 8px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.stButton>button:hover {
+    transform: translateY(-1px);
+}

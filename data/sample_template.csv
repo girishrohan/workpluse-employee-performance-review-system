@@ -1,0 +1,3 @@
+employee_code,employee_name,department,experience_years,attendance_rate,task_completion_rate,training_hours,previous_performance,performance_category,review_date
+WP-2001,Jane Doe,Engineering,4.5,94.0,89.5,35.0,4.2,High,2026-06-15
+WP-2002,John Smith,Marketing,2.0,81.0,74.0,18.0,3.1,Moderate,2026-06-20

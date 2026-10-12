@@ -1,0 +1,17 @@
+# Python environments and generated files
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local databases and secrets
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Local tooling
+/cloudflared.exe
