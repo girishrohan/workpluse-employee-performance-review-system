@@ -1,129 +1,80 @@
-# WorkPulse – Employee Performance Review System
+# WorkPulse — Employee Performance Review System
 
-> **“Understand Performance. Empower Growth.”**
+**Understand Performance. Empower Growth.**
 
-A functional, full-stack workforce analytics and explainable machine learning decision-support web application developed for **Computer Science and Engineering Mini-Projects**.
+WorkPulse is a Streamlit and SQLite application for maintaining employee profiles, organizing review periods, recording weighted assessments, exploring real review data, and exporting filtered reports. It also provides optional experimental Decision Tree and Random Forest estimates using the project's NumPy-based implementations.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-FF4B4B)
-![Scikit--Learn](https://img.shields.io/badge/Scikit--Learn-1.3+-F7931E)
-![Plotly](https://img.shields.io/badge/Plotly-5.15+-3F4F75)
-![SQLite](https://img.shields.io/badge/SQLite-3.0+-003B57)
-![Tests](https://img.shields.io/badge/Tests-21%20Passed-10B981)
+## Modules
 
----
+- **Dashboard:** database-backed employee, review-period, assessment, and indicator counts; performance distribution; department comparison; monthly trends; recent reviews; and review follow-up.
+- **Employees:** searchable and filterable directory with add, edit, and confirmed delete actions. Employee profiles are independent from assessments; adding a person does not invent review results.
+- **Performance periods:** create, edit, activate, complete, and delete review windows. A period with assessments cannot be deleted.
+- **Performance areas:** configure assessment indicators and their weights. Active weights must total 100%.
+- **Assessments:** record per-indicator scores, reviewer comments, and dates. The overall score is calculated from the active weights and retained in assessment history.
+- **Analytics:** filter recorded assessment data by period and department and explore outcome, distribution, and monthly charts.
+- **Predictions:** evaluate models only when complete labelled records are available, show held-out metrics, estimate a category, and record predictions separately from human assessments.
+- **Reports:** filter assessments by department, employee, and period; download the matching records as CSV.
+- **Notifications:** review saved workflow updates and employees still awaiting assessment during an active period.
+- **Settings:** persist workspace and administrator display preferences.
 
-## 🌟 Overview & Core Modules
+New databases start with five configurable assessment indicators, but **no fabricated employees or assessments**. The bundled CSVs are optional example datasets and are not automatically imported.
 
-WorkPulse replaces manual, subjective spreadsheet appraisals with an interactive, data-driven platform that tracks employee indicators, predicts performance categories (`Needs Support`, `Moderate`, `High`), and transparently explains prediction factors.
+## Requirements
 
-### 8 Functional Web Application Pages
-1. **🏠 Home / Overview**: WorkPulse branding, project introduction, available modules summary, quick action buttons, and dynamic live statistics.
-2. **📊 Dashboard**: Real-time KPI cards (Total Employees, Average Rating, Attendance, Task Completion, Category breakdown) and dynamic Plotly charts (Category Donut, Department Bar, Attendance vs Tasks Scatter, Training Box Plot).
-3. **👥 Employee Management**: Complete persistent CRUD operations backed by SQLite (view/search records, add new employee with validation, edit details, view chronological review history, delete with confirmation).
-4. **📁 Dataset Management**: CSV dataset upload, preview table, schema validation, missing value & duplicate audit, sample template download, and database CSV export.
-5. **📈 Performance Analytics**: Deep-dive analytics exploring department-wise summaries, work feature correlation heatmaps, training impacts, and dated review trends.
-6. **🔮 Performance Prediction**: Live machine learning inference form with custom sliders or employee lookup, confidence probability bar chart, local feature contribution waterfall chart, and decision-support disclaimers.
-7. **🤖 Model Evaluation**: Side-by-side comparison of **Decision Tree** vs **Random Forest** on held-out test data (Accuracy, Precision, Recall, F1-Score, Confusion Matrix, Classification Report, Feature Importances).
-8. **📑 Reports & Export**: Formal executive performance summary report, printable academic view, and SQLite prediction audit log export.
+- Python 3.10 or newer
+- Dependencies listed in `requirements.txt`
 
----
+## Local setup
 
-## 📁 Repository Structure
+### Windows PowerShell
 
-```
-workpulse/
-├── app.py                      # Main Streamlit web application (8 pages)
-├── init_workpulse.py           # Database & sample data initializer
-├── styles.css                  # Custom CSS styling (Navy/Blue/Teal theme)
-├── requirements.txt            # Python dependencies
-├── .streamlit/
-│   └── config.toml             # Streamlit visual theme configuration
-├── data/
-│   ├── sample_employees.csv    # 600 realistic employee review records
-│   ├── sample_template.csv     # Empty CSV template with example rows
-├── database/
-│   └── db_manager.py           # SQLite connection and parameterized CRUD operations
-├── models/
-│   ├── train_model.py          # Machine learning training & evaluation pipeline
-│   ├── random_forest.pkl       # Serialized Random Forest pipeline
-│   └── decision_tree.pkl       # Serialized Decision Tree pipeline
-├── services/
-│   ├── employee_service.py     # Employee management business logic
-│   ├── analytics_service.py    # KPI calculations & statistical aggregations
-│   ├── prediction_service.py   # Inference, confidence scoring, & logging
-│   └── report_service.py       # Formal report generation & markdown exports
-├── utils/
-│   ├── validation.py           # Input boundaries & CSV schema validation
-│   └── sample_data_generator.py # Synthetic dataset generator
-├── tests/
-│   ├── test_database.py        # SQLite schema & CRUD unit tests
-│   ├── test_validation.py      # Input boundary & CSV validation unit tests
-│   ├── test_predictions.py     # ML training, inference, & explainability tests
-│   └── test_application.py     # Technical Requirements Document unit tests
-└── docs/
-    ├── synopsis.md             # Formal project synopsis for college submission
-    ├── architecture.md         # System architecture & Mermaid ER diagrams
-    └── viva_questions.md       # Comprehensive Viva Voce preparation Q&A guide
-```
-
-The SQLite database is created locally by `init_workpulse.py`; local database files are not tracked in Git.
-
----
-
-## 🚀 Quick Start Guide
-
-### 1. Environment Setup
-Ensure **Python 3.10 or higher** is installed. Create and activate a virtual environment:
-
-```bash
-# Windows
+```powershell
 python -m venv venv
-.\venv\Scripts\activate
-
-# Linux / macOS
-python3 -m venv venv
-source venv/bin/activate
+.\venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+streamlit run app.py
 ```
 
-### 2. Install Dependencies
+### macOS or Linux
+
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+streamlit run app.py
 ```
 
-### 3. Initialize Database & Train Models
-```bash
-python init_workpulse.py
-```
+Open <http://localhost:8501>. On first launch, WorkPulse creates or migrates `data/workpulse.db`. Back up this file to preserve employee and assessment data. The schema is documented in [`sql/schema.sql`](sql/schema.sql); application startup applies compatible migrations to existing databases.
 
-### 4. Run Automated Unit Tests
+## Run tests
+
 ```bash
 python -m unittest discover -s tests -p "test_*.py"
 ```
-*(All 21 unit tests will run and report 100% pass status).*
 
-### 5. Launch the Web Application
-```bash
-streamlit run app.py
+## Prediction and assessment methodology
+
+- Reviews are human-entered assessments. Their category labels are derived from the weighted overall score: under 60 is **Needs Support**, under 80 is **Moderate**, and 80 or above is **High**.
+- A model estimate is clearly identified as a prediction and never replaces or edits an assessment.
+- Model training uses complete historical rows with an actual `performance_category`. The label is excluded from the input-feature list; the existing trainer evaluates using a separate held-out test split.
+- If there are not enough complete labelled rows to evaluate a model, the Predictions page explains why rather than showing made-up metrics.
+- Model scores are experimental decision support and must not be used as the sole basis for employment decisions.
+
+## Security and deployment
+
+The application currently has **no authentication or role-based access control**. The administrator name in Settings is only a display preference; it does not establish identity or permissions. Do not expose this app publicly with real employee information until authentication, authorization, and an appropriate data-protection policy have been implemented.
+
+For a hosted Streamlit deployment, connect the repository to Streamlit Community Cloud and select `app.py` as the entry point. The hosting provider, not your laptop, runs the app. The included SQLite database is local to the running instance and may not survive a restart or redeploy; use managed persistent storage before relying on hosted data.
+
+## Project layout
+
+```text
+app.py                        Streamlit entry point
+workpulse_ui.py               Navigation, dashboard, and module views
+ui_components.py              Shared cards, headings, status, and chart styling
+services/workpulse_service.py SQLite-backed employee and review workflows
+database/db_manager.py        Existing employee, review, and model persistence
+models/train_model.py         Decision Tree, Random Forest, metrics, explanations
+sql/schema.sql                Database schema reference
+tests/                        Unit and workflow tests
 ```
-Open your browser at `http://localhost:8501`.
-
----
-
-## 🛡️ Responsible AI & Ethical Design
-- **Decision Support Scope**: Predictions are explicitly labeled as experimental estimates to support managerial training allocations, not automated employment actions.
-- **Privacy Preservation**: Sensitive demographic attributes (age, gender, ethnicity, religion) are strictly excluded from input features.
-- **Explainability**: Every prediction displays local positive and negative feature contributions relative to population benchmarks to demystify model rationale.
-
----
-
-## 🎓 College Mini-Project Submission Checklist
-- [x] Complete, modular, functional Python source code.
-- [x] Functional 8-page Streamlit web dashboard.
-- [x] SQLite database with normalized schema (`employees`, `performance_records`, `model_runs`, `predictions`).
-- [x] Pre-loaded 600-record sample dataset and downloadable CSV template.
-- [x] Machine learning classification pipeline (Decision Tree & Random Forest).
-- [x] Automated unit test suite with 21 passing test cases.
-- [x] Formal Project Synopsis ([`docs/synopsis.md`](docs/synopsis.md)).
-- [x] System Architecture & ER Diagrams ([`docs/architecture.md`](docs/architecture.md)).
-- [x] Viva Voce Examination Prep Guide ([`docs/viva_questions.md`](docs/viva_questions.md)).

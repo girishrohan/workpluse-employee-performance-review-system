@@ -40,17 +40,14 @@ def run_employee_prediction(pipeline, input_dict, model_id=1, employee_id=None, 
     )
 
     # Log prediction to SQLite
-    try:
-        log_prediction(
-            model_id=model_id,
-            predicted_category=pred_cat,
-            feature_snapshot=input_dict,
-            explanation_summary=summary_text,
-            employee_id=employee_id,
-            db_path=db_path
-        )
-    except Exception as e:
-        print("Note: Could not log prediction to database:", e)
+    log_prediction(
+        model_id=model_id,
+        predicted_category=pred_cat,
+        feature_snapshot=input_dict,
+        explanation_summary=summary_text,
+        employee_id=employee_id,
+        db_path=db_path
+    )
 
     return {
         'predicted_category': pred_cat,
