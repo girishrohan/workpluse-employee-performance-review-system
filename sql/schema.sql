@@ -107,4 +107,4 @@ INSERT OR IGNORE INTO performance_areas (name, description, weight) VALUES
     ('Task completion', 'Delivery of agreed work and responsibilities.', 25),
     ('Productivity', 'Quality and consistency of work output.', 25),
     ('Teamwork', 'Collaboration and communication with colleagues.', 15),
-    ('Learning and development', 'Engagement with training and skill development.', 15);
+    ('Learning and development', 'Engagement with training and skill development.', 15);

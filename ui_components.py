@@ -1,8 +1,10 @@
-"""Reusable visual primitives for the WorkPulse Streamlit interface."""
+"""
+WorkPulse — Reusable Visual Components & SVG Icon Library.
+High-end Enterprise SaaS design primitives matching Deep Navy & Teal aesthetic.
+"""
 
 from html import escape
 from typing import Any
-
 import streamlit as st
 
 
@@ -35,76 +37,320 @@ def get_icon(name: str) -> str:
 
 
 # -----------------------------------------------------------------------------
-
-
-def render_page_heading(title: str, subtitle: str, breadcrumb: str | None = None) -> None:
-    if breadcrumb:
-        st.caption(breadcrumb)
-    st.markdown(f'<h1 class="wp-page-title">{escape(title)}</h1>', unsafe_allow_html=True)
-    st.markdown(
-        f'<p class="wp-page-subtitle">{escape(subtitle)}</p>',
-        unsafe_allow_html=True,
-    )
-
-
-def render_metric_card(
-    label: str, value: Any, detail: str, icon: str, tone: str = "blue"
+# Page Header & Breadcrumbs
+# -----------------------------------------------------------------------------
+def render_page_heading(
+    title: str, subtitle: str, breadcrumb: str | None = None, badge: str | None = None
 ) -> None:
-    safe_values = [escape(str(item)) for item in (label, value, detail, icon, tone)]
+    safe_title = escape(title)
+    safe_sub = escape(subtitle)
+    bc_html = ""
+    if breadcrumb:
+        safe_bc = escape(breadcrumb)
+        bc_html = f'<div class="wp-breadcrumb">WORKSPACE &nbsp;/&nbsp; <span>{safe_bc}</span></div>'
+    
+    badge_html = ""
+    if badge:
+        safe_badge = escape(badge)
+        badge_html = f'<span class="wp-badge wp-badge-active" style="margin-left:0.75rem;">{safe_badge}</span>'
+
     st.markdown(
         f"""
-        <section class="wp-metric-card wp-tone-{safe_values[4]}">
-            <div class="wp-metric-top">
-                <span class="wp-metric-label">{safe_values[0]}</span>
-                <span class="wp-metric-icon" aria-hidden="true">{safe_values[3]}</span>
+        <div style="margin-bottom: 1.5rem;">
+            {bc_html}
+            <div style="display:flex; align-items:center;">
+                <h1 class="wp-page-title">{safe_title}</h1>
+                {badge_html}
             </div>
-            <div class="wp-metric-value">{safe_values[1]}</div>
-            <div class="wp-metric-detail">{safe_values[2]}</div>
-        </section>
+            <p class="wp-page-subtitle">{safe_sub}</p>
+        </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-def render_status(value: str) -> str:
-    statuses = {
-        "active": "wp-status-positive",
-        "completed": "wp-status-positive",
-        "high": "wp-status-positive",
-        "draft": "wp-status-neutral",
-        "on leave": "wp-status-warning",
-        "moderate": "wp-status-warning",
-        "inactive": "wp-status-neutral",
-        "needs support": "wp-status-danger",
+# -----------------------------------------------------------------------------
+# Metric / KPI Cards
+# -----------------------------------------------------------------------------
+def render_metric_card(
+    label: str,
+    value: Any,
+    detail: str,
+    icon: str = "dashboard",
+    tone: str = "navy",
+    trend: str | None = None,
+) -> None:
+    safe_label = escape(str(label))
+    safe_value = escape(str(value))
+    safe_detail = escape(str(detail))
+    safe_tone = escape(str(tone))
+    icon_svg = get_icon(icon)
+
+    trend_html = ""
+    if trend:
+        safe_trend = escape(str(trend))
+        trend_html = f'<span class="wp-metric-trend-up">{ICONS["trending-up"]} {safe_trend}</span> &nbsp;'
+
+    st.markdown(
+        f"""
+        <div class="wp-metric-card wp-tone-{safe_tone}">
+            <div class="wp-metric-top">
+                <span class="wp-metric-label">{safe_label}</span>
+                <div class="wp-metric-icon-wrap" aria-hidden="true">{icon_svg}</div>
+            </div>
+            <div class="wp-metric-value">{safe_value}</div>
+            <div class="wp-metric-detail">{trend_html}{safe_detail}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Active Review Cycle Progress Banner
+# -----------------------------------------------------------------------------
+def render_cycle_banner(
+    cycle_name: str,
+    status: str,
+    due_date: str,
+    progress_pct: float,
+    total_reviews: int,
+    pending_reviews: int,
+) -> None:
+    safe_name = escape(cycle_name)
+    safe_status = escape(status)
+    safe_due = escape(due_date)
+    pct = max(0, min(100, int(progress_pct)))
+    
+    st.markdown(
+        f"""
+        <div class="wp-cycle-banner">
+            <div class="wp-cycle-info">
+                <span class="wp-cycle-badge">{safe_status} CYCLE</span>
+                <div class="wp-cycle-text">
+                    <strong>{safe_name}</strong>
+                    <span>Due: {safe_due} &nbsp;·&nbsp; {total_reviews} completed &nbsp;·&nbsp; {pending_reviews} pending</span>
+                </div>
+            </div>
+            <div style="min-width: 180px; text-align: right;">
+                <span style="font-size:0.75rem; font-weight:700; color:var(--wp-teal);">{pct}% COMPLETE</span>
+                <div class="wp-progress-wrap">
+                    <div class="wp-progress-bar" style="width: {pct}%;"></div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Status & Outcome Badges
+# -----------------------------------------------------------------------------
+def render_status_badge(value: str) -> str:
+    """Returns HTML for modern status chips with dot indicator."""
+    val_clean = value.strip().casefold()
+    classes = {
+        "high": ("wp-badge-high", "#0D9488"),
+        "active": ("wp-badge-active", "#059669"),
+        "completed": ("wp-badge-completed", "#168C83"),
+        "moderate": ("wp-badge-moderate", "#D97706"),
+        "on leave": ("wp-badge-on-leave", "#D97706"),
+        "needs support": ("wp-badge-needs-support", "#E11D48"),
+        "draft": ("wp-badge-draft", "#64748B"),
+        "inactive": ("wp-badge-draft", "#64748B"),
     }
-    class_name = statuses.get(value.strip().casefold(), "wp-status-neutral")
+    badge_class, dot_color = classes.get(val_clean, ("wp-badge-draft", "#64748B"))
     return (
-        f'<span class="wp-status {class_name}">'
-        f"{escape(value)}</span>"
+        f'<span class="wp-badge {badge_class}">'
+        f'<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:{dot_color};margin-right:2px;"></span>'
+        f'{escape(value)}</span>'
     )
 
 
-def apply_chart_style(figure: Any) -> Any:
-    figure.update_layout(
-        template="plotly_white",
-        margin=dict(l=12, r=12, t=30, b=12),
-        font=dict(family="Inter, sans-serif", color="#263238", size=12),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+# Backward compatibility alias
+def render_status(value: str) -> str:
+    return render_status_badge(value)
+
+
+# -----------------------------------------------------------------------------
+# Dedicated Employee Profile Dossier
+# -----------------------------------------------------------------------------
+def render_employee_profile_card(emp: dict[str, Any]) -> None:
+    """Renders a comprehensive, high-end employee performance card."""
+    name = escape(str(emp.get("employee_name", "Employee")))
+    code = escape(str(emp.get("employee_code", "WP-000")))
+    dept = escape(str(emp.get("department", "General")))
+    desig = escape(str(emp.get("designation") or "Staff Member"))
+    status = str(emp.get("status", "Active"))
+    tenure = f"{float(emp.get('experience_years', 0)):.1f} yrs"
+    
+    att = float(emp.get("attendance_rate") or 90.0)
+    task = float(emp.get("task_completion_rate") or 85.0)
+    training = float(emp.get("training_hours") or 24.0)
+    rating = float(emp.get("previous_performance") or 3.5)
+    
+    initials = "".join(part[0].upper() for part in name.split()[:2]) or "E"
+    status_chip = render_status_badge(status)
+
+    st.markdown(
+        f"""
+        <div class="wp-profile-card">
+            <div class="wp-profile-top">
+                <div class="wp-profile-avatar">{initials}</div>
+                <div class="wp-profile-info">
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <h3>{name}</h3>
+                        {status_chip}
+                    </div>
+                    <div class="wp-profile-meta">
+                        <span><strong>{code}</strong></span>
+                        <span>•</span>
+                        <span>{desig}</span>
+                        <span>•</span>
+                        <span>{dept}</span>
+                        <span>•</span>
+                        <span>Tenure: {tenure}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="wp-profile-metrics-grid">
+                <div class="wp-profile-metric-box">
+                    <div class="wp-profile-metric-label">Attendance Rate</div>
+                    <div class="wp-profile-metric-val">{att:.1f}%</div>
+                    <div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:{min(100, int(att))}%;"></div></div>
+                </div>
+                <div class="wp-profile-metric-box">
+                    <div class="wp-profile-metric-label">Task Completion</div>
+                    <div class="wp-profile-metric-val">{task:.1f}%</div>
+                    <div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:{min(100, int(task))}%;"></div></div>
+                </div>
+                <div class="wp-profile-metric-box">
+                    <div class="wp-profile-metric-label">Training Logged</div>
+                    <div class="wp-profile-metric-val">{training:.0f} hrs</div>
+                    <div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:{min(100, int(training * 2))}%;"></div></div>
+                </div>
+                <div class="wp-profile-metric-box">
+                    <div class="wp-profile-metric-label">Prior Score</div>
+                    <div class="wp-profile-metric-val">{rating:.1f} / 5.0</div>
+                    <div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:{min(100, int(rating * 20))}%;"></div></div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    figure.update_xaxes(showgrid=False, zeroline=False)
-    figure.update_yaxes(gridcolor="#EEF2F6", zeroline=False)
-    return figure
 
 
-def show_empty_state(title: str, description: str) -> None:
+# -----------------------------------------------------------------------------
+# High-End Empty State
+# -----------------------------------------------------------------------------
+def render_empty_state(
+    title: str, description: str, icon: str = "sparkles"
+) -> None:
+    safe_title = escape(title)
+    safe_desc = escape(description)
+    icon_svg = get_icon(icon)
+
     st.markdown(
         f"""
         <div class="wp-empty-state">
-            <div class="wp-empty-mark" aria-hidden="true">↗</div>
-            <strong>{escape(title)}</strong>
-            <p>{escape(description)}</p>
+            <div class="wp-empty-icon" aria-hidden="true">{icon_svg}</div>
+            <strong>{safe_title}</strong>
+            <p>{safe_desc}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# Backward compatibility alias
+def show_empty_state(title: str, description: str) -> None:
+    render_empty_state(title, description, icon="sparkles")
+
+
+# -----------------------------------------------------------------------------
+# Chart Styling (Plotly White & Enterprise Palette)
+# -----------------------------------------------------------------------------
+def apply_chart_style(figure: Any) -> Any:
+    """Applies refined, distraction-free typography and clean palette to Plotly figures."""
+    figure.update_layout(
+        template="plotly_white",
+        margin=dict(l=16, r=16, t=32, b=16),
+        font=dict(
+            family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            color="#0F172A",
+            size=12,
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            font=dict(size=11, color="#475569"),
+        ),
+        hoverlabel=dict(
+            bgcolor="#102A43",
+            font_size=12,
+            font_color="#FFFFFF",
+            font_family="Inter, sans-serif",
+        ),
+    )
+    figure.update_xaxes(
+        showgrid=False,
+        zeroline=False,
+        color="#475569",
+        tickfont=dict(size=11, color="#475569"),
+    )
+    figure.update_yaxes(
+        gridcolor="#F1F5F9",
+        zeroline=False,
+        color="#475569",
+        tickfont=dict(size=11, color="#475569"),
+    )
+    return figure
+
+
+# -----------------------------------------------------------------------------
+# Printable Executive Report Header
+# -----------------------------------------------------------------------------
+def render_executive_report_header(
+    report_title: str,
+    cycle_name: str,
+    dept_filter: str,
+    employee_count: int,
+    avg_score: float,
+) -> None:
+    st.markdown(
+        f"""
+        <div style="background:#FFFFFF; border:1px solid var(--wp-border); border-radius:var(--wp-radius-lg); padding:1.75rem; margin-bottom:1.5rem; box-shadow:var(--wp-shadow-sm);">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1px solid var(--wp-border); padding-bottom:1rem; margin-bottom:1.25rem;">
+                <div>
+                    <span style="font-size:0.6875rem; font-weight:700; color:var(--wp-teal); letter-spacing:0.08em; text-transform:uppercase;">WORKPULSE EXECUTIVE AUDIT</span>
+                    <h2 style="font-size:1.5rem; font-weight:700; color:var(--wp-navy); margin:0.25rem 0 0 0;">{escape(report_title)}</h2>
+                </div>
+                <div style="text-align:right;">
+                    <span style="font-size:0.75rem; font-weight:600; color:var(--wp-text-secondary);">Cycle: <strong>{escape(cycle_name)}</strong></span><br>
+                    <span style="font-size:0.75rem; color:var(--wp-text-muted);">Department: {escape(dept_filter)}</span>
+                </div>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem;">
+                <div style="background:var(--wp-bg); padding:0.75rem 1rem; border-radius:var(--wp-radius-md);">
+                    <div style="font-size:0.6875rem; font-weight:600; color:var(--wp-text-secondary); text-transform:uppercase;">Records Audited</div>
+                    <div style="font-size:1.25rem; font-weight:700; color:var(--wp-navy);">{employee_count}</div>
+                </div>
+                <div style="background:var(--wp-bg); padding:0.75rem 1rem; border-radius:var(--wp-radius-md);">
+                    <div style="font-size:0.6875rem; font-weight:600; color:var(--wp-text-secondary); text-transform:uppercase;">Workforce Mean Score</div>
+                    <div style="font-size:1.25rem; font-weight:700; color:var(--wp-navy);">{avg_score:.1f} / 100</div>
+                </div>
+                <div style="background:var(--wp-bg); padding:0.75rem 1rem; border-radius:var(--wp-radius-md);">
+                    <div style="font-size:0.6875rem; font-weight:600; color:var(--wp-text-secondary); text-transform:uppercase;">Overall Standing</div>
+                    <div style="font-size:1.25rem; font-weight:700; color:var(--wp-teal);">{render_status_badge('High' if avg_score >= 80 else ('Moderate' if avg_score >= 60 else 'Needs Support'))}</div>
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,

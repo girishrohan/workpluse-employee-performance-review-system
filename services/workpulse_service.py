@@ -4,7 +4,7 @@ import json
 import os
 import sqlite3
 from contextlib import closing, contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 
@@ -872,3 +872,200 @@ def _optional_int(value: Any) -> int | None:
     if value is None or pd.isna(value) or str(value).strip() == "":
         return None
     return int(value)
+
+
+def seed_demo_review_cycle(db_path: str = DB_PATH) -> int:
+    """Seeds demonstration review periods and realistic assessments for demo/evaluation."""
+    with _connection(db_path) as connection:
+        areas = connection.execute(
+            "SELECT area_id, name, weight FROM performance_areas WHERE active = 1"
+        ).fetchall()
+        if not areas:
+            for name, desc, weight in DEFAULT_AREAS:
+                connection.execute(
+                    "INSERT OR IGNORE INTO performance_areas (name, description, weight) VALUES (?, ?, ?)",
+                    (name, desc, weight),
+                )
+            areas = connection.execute(
+                "SELECT area_id, name, weight FROM performance_areas WHERE active = 1"
+            ).fetchall()
+
+        period_cols = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(performance_periods)")
+        }
+        has_title = "title" in period_cols
+
+        query_sql = (
+            "SELECT period_id FROM performance_periods WHERE name = ? OR title = ?"
+            if has_title
+            else "SELECT period_id FROM performance_periods WHERE name = ?"
+        )
+        query_args_q2 = ("FY2026 Q2 Review Cycle", "FY2026 Q2 Review Cycle") if has_title else ("FY2026 Q2 Review Cycle",)
+        query_args_q3 = ("FY2026 Q3 Review Cycle", "FY2026 Q3 Review Cycle") if has_title else ("FY2026 Q3 Review Cycle",)
+
+        p_q2 = connection.execute(query_sql, query_args_q2).fetchone()
+        if not p_q2:
+            start_q2 = (date.today() - timedelta(days=120)).isoformat()
+            end_q2 = (date.today() - timedelta(days=35)).isoformat()
+            if has_title:
+                cur = connection.execute(
+                    "INSERT INTO performance_periods (title, name, start_date, end_date, status) VALUES (?, ?, ?, ?, 'Completed')",
+                    ("FY2026 Q2 Review Cycle", "FY2026 Q2 Review Cycle", start_q2, end_q2),
+                )
+            else:
+                cur = connection.execute(
+                    "INSERT INTO performance_periods (name, start_date, end_date, status) VALUES (?, ?, ?, 'Completed')",
+                    ("FY2026 Q2 Review Cycle", start_q2, end_q2),
+                )
+            p_q2_id = cur.lastrowid
+        else:
+            p_q2_id = p_q2["period_id"]
+
+        p_q3 = connection.execute(query_sql, query_args_q3).fetchone()
+        if not p_q3:
+            start_q3 = (date.today() - timedelta(days=30)).isoformat()
+            end_q3 = (date.today() + timedelta(days=45)).isoformat()
+            if has_title:
+                cur = connection.execute(
+                    "INSERT INTO performance_periods (title, name, start_date, end_date, status) VALUES (?, ?, ?, ?, 'Active')",
+                    ("FY2026 Q3 Review Cycle", "FY2026 Q3 Review Cycle", start_q3, end_q3),
+                )
+            else:
+                cur = connection.execute(
+                    "INSERT INTO performance_periods (name, start_date, end_date, status) VALUES (?, ?, ?, 'Active')",
+                    ("FY2026 Q3 Review Cycle", start_q3, end_q3),
+                )
+            p_q3_id = cur.lastrowid
+        else:
+            p_q3_id = p_q3["period_id"]
+
+        emps = connection.execute(
+            """
+            SELECT e.employee_id, e.employee_code, e.employee_name, e.department,
+                   pr.attendance_rate, pr.task_completion_rate, pr.training_hours, pr.previous_performance
+            FROM employees e
+            LEFT JOIN performance_records pr ON e.employee_id = pr.employee_id
+            ORDER BY e.employee_id ASC
+            LIMIT 45
+            """
+        ).fetchall()
+
+        reviewers = [
+            "Dr. Marcus Vance (Operations VP)",
+            "Sarah Jenkins (People & Culture Director)",
+            "Elena Rostova (Engineering Lead)",
+            "David Chen (Head of Product)",
+        ]
+
+        comments_library = {
+            "High": [
+                "Exemplary performance across all core competencies. Met and exceeded project milestones ahead of schedule.",
+                "Demonstrated outstanding initiative, strong mentorship towards peers, and flawless execution on key deliverables.",
+                "Consistently drives high quality outcomes, exhibits proactive problem solving, and maintains impeccable reliability.",
+            ],
+            "Moderate": [
+                "Dependable performance consistently meeting team standards. Recommended to pursue advanced technical certifications next quarter.",
+                "Solid operational track record with steady output. Opportunities to enhance cross-functional communication and velocity.",
+                "Good core execution. With targeted coaching in project planning, this employee has strong potential for high-tier contribution.",
+            ],
+            "Needs Support": [
+                "Performance indicators indicate need for structured coaching. Focused improvement plan initiated for task completion turnaround.",
+                "Below expected completion thresholds this quarter. Recommended weekly 1:1 check-ins and dedicated skill-enhancement hours.",
+            ],
+        }
+
+        inserted_count = 0
+        for i, emp in enumerate(emps):
+            target_period_id = p_q3_id if (i % 3 != 0) else p_q2_id
+            existing = connection.execute(
+                "SELECT assessment_id FROM assessments WHERE employee_id = ? AND period_id = ?",
+                (emp["employee_id"], target_period_id),
+            ).fetchone()
+            if existing:
+                continue
+
+            att = float(emp["attendance_rate"]) if emp["attendance_rate"] is not None else 85.0
+            tsk = float(emp["task_completion_rate"]) if emp["task_completion_rate"] is not None else 80.0
+            trn = float(emp["training_hours"]) if emp["training_hours"] is not None else 25.0
+            prev = float(emp["previous_performance"]) if emp["previous_performance"] is not None else 3.5
+
+            scores = {}
+            for a in areas:
+                name = a["name"]
+                if "attendance" in name.lower():
+                    s = min(100.0, max(45.0, att + (i % 7 - 3)))
+                elif "task" in name.lower():
+                    s = min(100.0, max(40.0, tsk + (i % 5 - 2)))
+                elif "productivity" in name.lower():
+                    s = min(100.0, max(40.0, (tsk * 0.7 + att * 0.3) + (i % 6 - 3)))
+                elif "teamwork" in name.lower():
+                    s = min(100.0, max(50.0, (prev * 18.0) + (i % 8 - 4)))
+                elif "learning" in name.lower():
+                    s = min(100.0, max(40.0, (trn * 2.2) + 20.0))
+                else:
+                    s = 75.0 + (i % 15 - 7)
+                scores[name] = round(s, 1)
+
+            overall_score = sum(scores[a["name"]] * float(a["weight"]) / 100.0 for a in areas)
+            overall_score = round(min(100.0, max(0.0, overall_score)), 2)
+            category = _category_for_score(overall_score)
+
+            rev = reviewers[i % len(reviewers)]
+            comm_list = comments_library.get(category, comments_library["Moderate"])
+            comment = comm_list[i % len(comm_list)]
+
+            days_offset = (i * 2) % 40
+            a_date = (date.today() - timedelta(days=days_offset)).isoformat()
+
+            connection.execute(
+                """
+                INSERT INTO assessments (
+                    employee_id, period_id, assessment_date, reviewer,
+                    scores_json, overall_score, category, comments, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Completed')
+                """,
+                (
+                    emp["employee_id"],
+                    target_period_id,
+                    a_date,
+                    rev,
+                    json.dumps(scores),
+                    overall_score,
+                    category,
+                    comment,
+                ),
+            )
+            inserted_count += 1
+
+        if inserted_count > 0:
+            _notify(
+                connection,
+                "Demonstration Review Cycle Populated",
+                f"Generated {inserted_count} demonstration assessments across active review periods for evaluation.",
+            )
+        connection.commit()
+    return inserted_count
+
+
+def clear_demo_assessments(db_path: str = DB_PATH) -> int:
+    """Removes seeded demonstration review periods and assessments."""
+    with _connection(db_path) as connection:
+        deleted = connection.execute(
+            """
+            DELETE FROM assessments WHERE period_id IN (
+                SELECT period_id FROM performance_periods 
+                WHERE name IN ('FY2026 Q3 Review Cycle', 'FY2026 Q2 Review Cycle')
+            )
+            """
+        ).rowcount
+        connection.execute(
+            "DELETE FROM performance_periods WHERE name IN ('FY2026 Q3 Review Cycle', 'FY2026 Q2 Review Cycle')"
+        )
+        _notify(
+            connection,
+            "Demonstration Data Cleared",
+            "Reset demonstration review cycles and associated assessments.",
+        )
+        connection.commit()
+    return deleted

@@ -285,6 +285,24 @@ class WorkPulseServiceTests(unittest.TestCase):
             if os.path.exists(legacy_path):
                 os.remove(legacy_path)
 
+    def test_demo_review_cycle_seeding_and_clearing(self):
+        from services.workpulse_service import seed_demo_review_cycle, clear_demo_assessments
+        # Create a sample employee first
+        create_employee(
+            "WP-DEMO-1", "Jordan Demo", "Engineering", "Developer",
+            date.today(), "Active", 3.0, self.db_path
+        )
+        count = seed_demo_review_cycle(self.db_path)
+        self.assertGreater(count, 0)
+        assessments = get_assessments(self.db_path)
+        self.assertFalse(assessments.empty)
+        
+        # Now clear
+        deleted = clear_demo_assessments(self.db_path)
+        self.assertGreater(deleted, 0)
+        self.assertTrue(get_assessments(self.db_path).empty)
+
+
 
 def _is_missing(value):
     return value is None or str(value) == "nan"

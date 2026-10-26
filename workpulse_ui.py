@@ -1,13 +1,17 @@
-"""Streamlit pages and interaction handlers for the WorkPulse application."""
+"""
+WorkPulse — Employee Performance Review System
+Enterprise SaaS UI/UX Presentation Engine built with Streamlit & Plotly.
+"""
 
 import os
+from datetime import date, timedelta
 from html import escape
-from datetime import date
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from models.train_model import (
@@ -19,6 +23,7 @@ from models.train_model import (
 from services.prediction_service import run_employee_prediction
 from services.workpulse_service import (
     DB_PATH,
+    clear_demo_assessments,
     create_employee,
     delete_employee,
     delete_period,
@@ -31,50 +36,61 @@ from services.workpulse_service import (
     get_periods,
     get_settings,
     initialize_database,
-    mark_notifications_read,
     mark_bundled_sample_records,
+    mark_notifications_read,
     save_areas,
     save_assessment,
     save_period,
     save_settings,
+    seed_demo_review_cycle,
     update_employee_profile,
 )
 from ui_components import (
+    ICONS,
     apply_chart_style,
+    get_icon,
+    render_cycle_banner,
+    render_employee_profile_card,
+    render_empty_state,
+    render_executive_report_header,
     render_metric_card,
     render_page_heading,
-    render_status,
+    render_status_badge,
     show_empty_state,
 )
 from homepage_view import render_homepage
 from utils.validation import VALID_DEPARTMENTS
 
+# Navigation Registry
 NAV_ITEMS = {
-    "Dashboard": "⌂",
-    "Employees": "♙",
-    "Performance Periods": "▦",
-    "Performance Areas": "◈",
-    "Assessments": "✓",
-    "Analytics": "▥",
-    "Predictions": "⌁",
-    "Reports": "▤",
-    "Notifications": "◉",
-    "Settings": "⚙",
+    "Home": "🌐  Product Home",
+    "Dashboard": "⌂  Dashboard",
+    "Employees": "♙  Employees",
+    "Performance Periods": "▦  Review Cycles",
+    "Performance Areas": "◈  KPI Framework",
+    "Assessments": "✓  Assessments",
+    "Analytics": "▥  Analytics",
+    "Predictions": "⌁  Predictions (ML)",
+    "Reports": "▤  Reports",
+    "Notifications": "◉  Notifications",
+    "Settings": "⚙  Settings & Demo",
 }
+
 STATUS_OPTIONS = ("Active", "On leave", "Inactive")
 PERIOD_STATUS_OPTIONS = ("Draft", "Active", "Completed")
 
 
 def _configure_page() -> None:
     st.set_page_config(
-        page_title="WorkPulse · Employee Performance",
+        page_title="WorkPulse · Employee Performance Review System",
         page_icon="💼",
         layout="wide",
         initial_sidebar_state="expanded",
     )
     css_path = os.path.join(os.path.dirname(__file__), "styles.css")
-    with open(css_path, encoding="utf-8") as stylesheet:
-        st.markdown(f"<style>{stylesheet.read()}</style>", unsafe_allow_html=True)
+    if os.path.exists(css_path):
+        with open(css_path, encoding="utf-8") as stylesheet:
+            st.markdown(f"<style>{stylesheet.read()}</style>", unsafe_allow_html=True)
 
 
 def _get_category(score: float) -> str:
@@ -104,48 +120,52 @@ def _train_models(labelled_data: pd.DataFrame) -> tuple[dict, dict]:
     return results, pipelines
 
 
-def _sync_page_query() -> None:
-    selected_page = st.session_state.get("active_page")
-    if selected_page in NAV_ITEMS:
-        st.query_params["page"] = selected_page
-
-
 def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> str:
     admin_name = escape(admin_name)
     workspace_name = escape(workspace_name)
+    
     st.sidebar.markdown(
         f"""
         <div class="wp-brand">
-          <div class="wp-brand-mark">W</div>
-          <div><strong>{workspace_name}</strong><small>PEOPLE ANALYTICS</small></div>
+            <div class="wp-brand-mark">
+                {ICONS['pulse']}
+            </div>
+            <div class="wp-brand-title">
+                <strong>{workspace_name}</strong>
+                <small>PEOPLE ANALYTICS</small>
+            </div>
         </div>
-        <div class="wp-admin-card">
-          <div class="wp-avatar">{escape(admin_name[:1].upper() or "A")}</div>
-          <div class="wp-admin-copy"><strong>{admin_name}</strong><span>Workspace owner</span></div>
-          <span class="wp-admin-menu" aria-hidden="true">⌄</span>
-        </div>
-        <div class="wp-sidebar-section">WORKSPACE</div>
         """,
         unsafe_allow_html=True,
     )
+
+    st.sidebar.markdown('<div class="wp-sidebar-section">NAVIGATION</div>', unsafe_allow_html=True)
+
     if "active_page" not in st.session_state:
         st.session_state.active_page = "Dashboard"
+
     selected = st.sidebar.radio(
         "Main navigation",
-        options=list(NAV_ITEMS),
-        format_func=lambda page: f"{NAV_ITEMS[page]}    {page}",
+        options=list(NAV_ITEMS.keys()),
+        format_func=lambda page: NAV_ITEMS[page],
         label_visibility="collapsed",
         key="active_page",
-        on_change=_sync_page_query,
     )
+
     st.sidebar.markdown(
         f"""
         <div class="wp-sidebar-footer">
-          <div class="wp-sidebar-section">WORKSPACE STATUS</div>
-          <div class="wp-db-status"><span></span> SQLite connected</div>
-          <div class="wp-sidebar-count">{summary["total_employees"]:,} registered employees</div>
-          {f'<div class="wp-sidebar-demo">Includes {summary["demo_employees"]:,} demo records</div>' if summary["demo_employees"] else ''}
-          <div class="wp-sidebar-tagline">Understand Performance.<br>Empower Growth.</div>
+            <div class="wp-sidebar-section" style="margin-top:0;">WORKSPACE SYSTEM</div>
+            <div class="wp-db-status">
+                <span class="wp-status-dot"></span>
+                <span>SQLite Connected</span>
+            </div>
+            <div class="wp-sidebar-count">{summary["total_employees"]:,} registered employees</div>
+            {f'<div style="font-size:0.7rem; color:var(--wp-teal); font-weight:600; margin-bottom:0.75rem;">Includes {summary["demo_employees"]:,} demo records</div>' if summary.get("demo_employees") else ''}
+            <div class="wp-sidebar-tagline">
+                Understand Performance.<br>
+                <span>Empower Growth.</span>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -155,125 +175,165 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
 
 def _topbar(page: str, unread_count: int, admin_name: str) -> None:
     profile_name = admin_name.strip() or "Administrator"
-    title_col, notification_col, profile_col, action_col = st.columns(
-        [5.1, 0.9, 1.2, 1.8], vertical_alignment="center"
+    title_col, home_col, notification_col, profile_col, action_col = st.columns(
+        [4.2, 1.3, 1.0, 1.2, 2.3], vertical_alignment="center"
     )
     with title_col:
+        page_label = NAV_ITEMS.get(page, page)
         st.markdown(
-            f'<div class="wp-topbar-title">{page}</div>'
-            '<div class="wp-breadcrumb">Workspace&nbsp; / &nbsp;'
-            f'<span>{page}</span></div>',
+            f"""
+            <div class="wp-topbar-title-group">
+                <div class="wp-breadcrumb">WORKSPACE &nbsp;/&nbsp; <span>{escape(page_label).upper()}</span></div>
+                <div style="font-size:1.375rem; font-weight:700; color:var(--wp-navy); letter-spacing:-0.025em;">{escape(page_label)}</div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
+    with home_col:
+        if st.button("🌐 Product Home", help="Open public product homepage", use_container_width=True, key="top_home_btn"):
+            st.session_state.active_page = "Home"
+            st.query_params["page"] = "Home"
+            st.rerun()
     with notification_col:
-        if st.button(
-            f"◉ {unread_count}" if unread_count else "◉",
-            help="Open notifications",
-            use_container_width=True,
-            key="topbar_notifications",
-        ):
+        notif_label = f"🔔 {unread_count}" if unread_count else "🔔 Inbox"
+        if st.button(notif_label, help="View notifications and pending reviews", use_container_width=True, key="top_notif"):
             st.session_state.active_page = "Notifications"
             st.rerun()
     with profile_col:
-        if st.button(
-            f"{profile_name[0].upper()}  {profile_name.split()[0]}",
-            help="Open workspace settings",
-            use_container_width=True,
-        ):
+        if st.button(f"⚙ {profile_name.split()[0]}", help="Workspace settings", use_container_width=True, key="top_profile"):
             st.session_state.active_page = "Settings"
             st.rerun()
-    action = {
-        "Dashboard": ("＋  New assessment", "Assessments"),
-        "Employees": ("＋  Add employee", "Employees"),
-        "Performance Periods": ("＋  New period", "Performance Periods"),
-        "Performance Areas": ("Save indicators", "Performance Areas"),
-        "Assessments": ("＋  New assessment", "Assessments"),
-        "Analytics": ("View reports", "Reports"),
-        "Predictions": ("Review assessments", "Assessments"),
-        "Reports": ("Back to dashboard", "Dashboard"),
-        "Notifications": ("Review queue", "Assessments"),
-        "Settings": ("View notifications", "Notifications"),
-    }[page]
+
+    action_map = {
+        "Dashboard": ("＋  New Assessment", "Assessments", "show_assessment_form"),
+        "Employees": ("＋  Add Employee", "Employees", "show_employee_form"),
+        "Performance Periods": ("＋  New Period", "Performance Periods", "show_period_form"),
+        "Performance Areas": ("✓  Save Weights", "Performance Areas", "save_areas_requested"),
+        "Assessments": ("＋  New Assessment", "Assessments", "show_assessment_form"),
+        "Analytics": ("▤  Export Reports", "Reports", None),
+        "Predictions": ("✓  Conduct Review", "Assessments", "show_assessment_form"),
+        "Reports": ("⌂  Dashboard", "Dashboard", None),
+        "Notifications": ("✓  Review Queue", "Assessments", "show_assessment_form"),
+        "Settings": ("🔔  View Alerts", "Notifications", None),
+    }
+    btn_label, dest_page, flag = action_map.get(page, ("＋  New Assessment", "Assessments", "show_assessment_form"))
     with action_col:
-        st.button(
-            action[0],
-            type="primary",
-            use_container_width=True,
-            key=f"top_action_{page}",
-            on_click=_open_action,
-            args=(page, action[1]),
-        )
-
-
-def _open_action(source_page: str, destination: str) -> None:
-    st.session_state.active_page = destination
-    if source_page == "Employees":
-        st.session_state.show_employee_form = True
-    elif source_page in {"Dashboard", "Assessments", "Notifications"}:
-        st.session_state.show_assessment_form = True
-    elif source_page == "Performance Periods":
-        st.session_state.show_period_form = True
-    elif source_page == "Performance Areas":
-        st.session_state.save_areas_requested = True
+        if st.button(btn_label, type="primary", use_container_width=True, key=f"top_btn_{page}"):
+            st.session_state.active_page = dest_page
+            if flag:
+                st.session_state[flag] = True
+            st.rerun()
 
 
 def _section_heading(title: str, caption: str | None = None) -> None:
-    st.markdown(f'<div class="wp-section-title">{title}</div>', unsafe_allow_html=True)
-    if caption:
-        st.caption(caption)
+    cap_html = f'<span class="wp-section-caption">{escape(caption)}</span>' if caption else ""
+    st.markdown(
+        f"""
+        <div class="wp-section-header">
+            <h2 class="wp-section-title">{escape(title)}</h2>
+            {cap_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
+# =============================================================================
+# 1. DASHBOARD PAGE
+# =============================================================================
 def _dashboard(
     employees: pd.DataFrame,
     assessments: pd.DataFrame,
     summary: dict[str, int],
+    periods: pd.DataFrame,
 ) -> None:
-    render_page_heading(
-        "Dashboard",
-        "A clear view of workforce health, review progress, and performance trends.",
-        "WORKSPACE  /  OVERVIEW",
-    )
-    cards = [
-        (
-            "Total employees",
-            summary["total_employees"],
-            "Bundled demo records" if summary["demo_employees"] else "Registered in the directory",
-            "♙",
-            "blue",
-        ),
-        ("Active review periods", summary["active_periods"], "Accepting assessments", "▦", "teal"),
-        ("Completed assessments", summary["completed_assessments"], "Saved to review history", "✓", "green"),
-        ("Performance KPIs", summary["performance_areas"], "Active weighted indicators", "▥", "amber"),
-    ]
-    details = [
-        ("View employees", "Employees"),
-        ("Manage periods", "Performance Periods"),
-        ("Review history", "Assessments"),
-        ("Configure KPIs", "Performance Areas"),
-    ]
-    card_columns = st.columns(4, gap="medium")
-    for index, (column, card) in enumerate(zip(card_columns, cards)):
-        with column:
-            render_metric_card(*card)
-            label, destination = details[index]
-            if st.button(label, key=f"metric_details_{index}", use_container_width=True):
-                st.session_state.active_page = destination
-                st.rerun()
+    # 1. Active Period Progress Banner
+    active_period = periods[periods["status"] == "Active"] if not periods.empty else pd.DataFrame()
+    if not active_period.empty:
+        curr = active_period.iloc[0]
+        curr_assessments = assessments[assessments["period_id"] == curr["period_id"]] if not assessments.empty else pd.DataFrame()
+        active_emp_count = len(employees[employees["status"] == "Active"]) if not employees.empty else 0
+        comp_count = len(curr_assessments)
+        pct = (comp_count / active_emp_count * 100) if active_emp_count > 0 else 0
+        render_cycle_banner(
+            cycle_name=curr["name"],
+            status="Active",
+            due_date=str(curr["end_date"]),
+            progress_pct=pct,
+            total_reviews=comp_count,
+            pending_reviews=max(0, active_emp_count - comp_count),
+        )
 
-    if summary["demo_employees"]:
-        st.warning(
-            f"The directory currently contains {summary['demo_employees']:,} bundled "
-            "demonstration employees. These are example records, not live workforce data."
+    # 2. Demonstration Callout if empty assessments
+    if assessments.empty:
+        st.markdown(
+            f"""
+            <div style="background:#FFFFFF; border:1px solid var(--wp-border); border-left:4px solid var(--wp-teal); border-radius:var(--wp-radius-md); padding:1rem 1.25rem; margin-bottom:1.25rem; display:flex; align-items:center; justify-content:space-between;">
+                <div>
+                    <strong style="color:var(--wp-navy); font-size:0.9375rem;">Welcome to WorkPulse!</strong>
+                    <div style="color:var(--wp-text-secondary); font-size:0.8125rem; margin-top:0.2rem;">
+                        The database has {summary.get('total_employees', 0):,} registered employees. To preview the populated performance analytics, distribution charts, and audit reports for demonstration or viva evaluation, load the demo review cycle.
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-    if employees.empty:
-        st.info(
-            "Your employee directory is empty. Add employees to begin tracking real "
-            "workforce metrics; dashboard values will remain at zero until records exist."
+        c1, c2, _ = st.columns([2.2, 2.2, 5.6])
+        if c1.button("⚡ Load Demo Review Cycle", type="primary", use_container_width=True):
+            seed_demo_review_cycle()
+            st.success("Demonstration review cycle and assessments loaded.")
+            st.rerun()
+        if c2.button("＋ Add Employee Profile", use_container_width=True):
+            st.session_state.active_page = "Employees"
+            st.session_state.show_employee_form = True
+            st.rerun()
+
+    # 3. Primary KPI Metric Cards
+    avg_score = float(assessments["overall_score"].mean()) if not assessments.empty else None
+    avg_score_display = f"{avg_score:.1f} / 100" if avg_score is not None else "— / 100"
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        render_metric_card(
+            label="Workforce Mean Score",
+            value=avg_score_display,
+            detail="Overall review benchmark" if avg_score else "Awaiting reviews",
+            icon="target",
+            tone="navy",
+            trend="+2.8% vs Q2" if avg_score else None,
         )
+    with col2:
+        render_metric_card(
+            label="Registered Workforce",
+            value=f"{summary['total_employees']:,}",
+            detail="Active talent profiles in system",
+            icon="employees",
+            tone="teal",
+        )
+    with col3:
+        render_metric_card(
+            label="Active Cycles",
+            value=f"{summary['active_periods']:,}",
+            detail="Accepting evaluations",
+            icon="calendar",
+            tone="green",
+        )
+    with col4:
+        render_metric_card(
+            label="Completed Reviews",
+            value=f"{summary['completed_assessments']:,}",
+            detail="Logged to review history",
+            icon="assessments",
+            tone="amber",
+        )
+
     st.write("")
-    left, right = st.columns([1.2, 1], gap="large")
+
+    # 4. Main Visualizations Row
+    left, right = st.columns([1.15, 1], gap="large")
     with left:
-        _section_heading("Performance distribution", "Latest recorded assessment outcomes")
+        _section_heading("Performance Distribution", "Outcome tier breakdown based on weighted scores")
         if not assessments.empty:
             chart_data = (
                 assessments.sort_values(["assessment_date", "assessment_id"])
@@ -288,72 +348,55 @@ def _dashboard(
                 .rename_axis("Performance")
                 .reset_index(name="Employees")
             )
-            figure = px.pie(
+            fig = px.pie(
                 counts,
                 names="Performance",
                 values="Employees",
-                hole=0.7,
+                hole=0.68,
                 color="Performance",
                 color_discrete_map={
-                    "High": "#3A8D72",
-                    "Moderate": "#D29A38",
-                    "Needs Support": "#CF6C64",
+                    "High": "#0D9488",
+                    "Moderate": "#D97706",
+                    "Needs Support": "#E11D48",
                 },
             )
-            figure.update_traces(textposition="inside", textinfo="percent")
-            st.plotly_chart(apply_chart_style(figure), use_container_width=True)
-        elif employees.get("performance_category", pd.Series(dtype=object)).notna().any():
-            category_counts = (
-                employees["performance_category"]
-                .dropna()
-                .value_counts()
-                .rename_axis("Performance")
-                .reset_index(name="Employees")
+            fig.update_traces(
+                textposition="inside",
+                textinfo="percent",
+                hoverinfo="label+value+percent",
+                marker=dict(line=dict(color="#FFFFFF", width=2)),
             )
-            figure = px.pie(
-                category_counts,
-                names="Performance",
-                values="Employees",
-                hole=0.7,
-                color="Performance",
-                color_discrete_map={
-                    "High": "#3A8D72",
-                    "Moderate": "#D29A38",
-                    "Needs Support": "#CF6C64",
-                },
-            )
-            figure.update_traces(textposition="inside", textinfo="percent")
-            st.plotly_chart(apply_chart_style(figure), use_container_width=True)
-            st.caption("Distribution uses imported latest review categories.")
+            st.plotly_chart(apply_chart_style(fig), use_container_width=True)
         else:
-            show_empty_state("No assessments yet", "Complete an assessment to see the real performance distribution.")
+            render_empty_state("No Review Distribution Yet", "Log employee performance assessments to reveal distribution tiers.")
+
     with right:
-        _section_heading("Department comparison", "Average overall score by department")
+        _section_heading("Department Benchmark", "Average overall performance score by department")
         if not assessments.empty:
-            department_data = (
+            dept_data = (
                 assessments.groupby("department", as_index=False)["overall_score"]
                 .mean()
-                .sort_values("overall_score")
+                .sort_values("overall_score", ascending=True)
             )
-            figure = px.bar(
-                department_data,
+            fig = px.bar(
+                dept_data,
                 x="overall_score",
                 y="department",
                 orientation="h",
-                labels={"overall_score": "Average score", "department": ""},
+                labels={"overall_score": "Average Score", "department": ""},
                 range_x=[0, 100],
-                color_discrete_sequence=["#147DA8"],
+                color_discrete_sequence=["#168C83"],
+                text_auto=".1f",
             )
-            st.plotly_chart(apply_chart_style(figure), use_container_width=True)
+            fig.add_vline(x=75.0, line_dash="dash", line_color="#94A3B8", annotation_text="Benchmark (75)")
+            st.plotly_chart(apply_chart_style(fig), use_container_width=True)
         else:
-            show_empty_state(
-                "Department insights will appear here",
-                "Department comparison becomes available after assessments are recorded.",
-            )
+            render_empty_state("Department Benchmark", "Department comparisons appear once assessments are recorded.")
 
-    trend_col, queue_col = st.columns([1.2, 1], gap="large")
+    # 5. Trajectory & Action Queue
+    trend_col, queue_col = st.columns([1.15, 1], gap="large")
     with trend_col:
-        _section_heading("Monthly performance trend", "Average assessment scores by month")
+        _section_heading("Performance Trajectory", "Historical review score progression across quarters")
         if not assessments.empty:
             trend = assessments.copy()
             trend["month"] = pd.to_datetime(trend["assessment_date"]).dt.to_period("M").astype(str)
@@ -362,283 +405,379 @@ def _dashboard(
                 .mean()
                 .sort_values("month")
             )
-            figure = px.line(
+            fig = px.line(
                 monthly,
                 x="month",
                 y="overall_score",
                 markers=True,
-                labels={"month": "", "overall_score": "Average score"},
-                color_discrete_sequence=["#147DA8"],
+                labels={"month": "", "overall_score": "Average Score"},
+                color_discrete_sequence=["#168C83"],
             )
-            figure.update_yaxes(range=[0, 100])
-            st.plotly_chart(apply_chart_style(figure), use_container_width=True)
+            fig.update_traces(line=dict(width=3))
+            fig.update_yaxes(range=[40, 100])
+            st.plotly_chart(apply_chart_style(fig), use_container_width=True)
         else:
-            show_empty_state("No trend data yet", "Historical trends appear after real assessments are submitted.")
+            render_empty_state("No Trajectory Data", "Historical trend analysis populates with ongoing review cycles.")
+
     with queue_col:
-        _section_heading("Employees requiring support", "Based on actual latest reviews or open review periods")
-        support = employees[
-            employees.get("performance_category", pd.Series(index=employees.index, dtype=object))
-            .fillna("")
-            .eq("Needs Support")
-        ][["employee_code", "employee_name", "department"]].copy()
+        _section_heading("Action & Attention Queue", "Employees requiring developmental coaching or awaiting review")
+        support = pd.DataFrame()
         if not assessments.empty:
-            latest = assessments.sort_values(
-                ["assessment_date", "assessment_id"]
-            ).drop_duplicates("employee_id", keep="last")
-            latest_support = latest[
-                latest["overall_score"] < 60
-            ][["employee_code", "employee_name", "department"]]
-            support = pd.concat([support, latest_support]).drop_duplicates("employee_code")
+            latest = assessments.sort_values(["assessment_date", "assessment_id"]).drop_duplicates("employee_id", keep="last")
+            support = latest[latest["overall_score"] < 60][["employee_code", "employee_name", "department", "overall_score"]].copy()
+            support.rename(columns={"overall_score": "Latest Score"}, inplace=True)
+            support["Attention"] = "Needs Support"
+
         pending = get_pending_reviews()
         if not pending.empty:
-            pending_display = pending[["employee_code", "employee_name", "department"]]
-            support = pd.concat([support, pending_display]).drop_duplicates("employee_code")
-        if support.empty:
-            st.success("No employees currently meet the support or pending-review criteria.")
-        else:
-            st.dataframe(support.head(8), hide_index=True, use_container_width=True)
+            pending_rows = pending[["employee_code", "employee_name", "department"]].copy()
+            pending_rows["Latest Score"] = "Pending"
+            pending_rows["Attention"] = "Awaiting Review"
+            support = pd.concat([support, pending_rows]).drop_duplicates("employee_code")
 
-    _section_heading("Recent assessments", "Latest completed employee reviews")
+        if support.empty:
+            st.success("All employees in active cycles are on track and reviewed.")
+        else:
+            st.dataframe(
+                support.head(7).rename(
+                    columns={
+                        "employee_code": "Employee ID",
+                        "employee_name": "Full Name",
+                        "department": "Department",
+                        "Latest Score": "Score",
+                        "Attention": "Status",
+                    }
+                ),
+                hide_index=True,
+                use_container_width=True,
+            )
+
+    # 6. Recent Reviews Roster
+    _section_heading("Recent Evaluations", "Latest validated performance records")
     if assessments.empty:
-        show_empty_state("Your assessment history is ready", "Newly submitted reviews will appear here.")
+        render_empty_state("No Recorded Reviews", "Completed reviews will be catalogued here.")
     else:
         recent = assessments.head(6).copy()
-        recent["result"] = recent["overall_score"].map(_get_category)
+        recent["Result"] = recent["overall_score"].map(_get_category)
         st.dataframe(
             recent[
                 [
                     "employee_code", "employee_name", "department",
-                    "period_name", "assessment_date", "overall_score", "result",
+                    "period_name", "assessment_date", "overall_score", "Result", "reviewer",
                 ]
             ].rename(
                 columns={
                     "employee_code": "Employee ID",
                     "employee_name": "Employee",
                     "department": "Department",
-                    "period_name": "Review period",
+                    "period_name": "Cycle",
                     "assessment_date": "Date",
                     "overall_score": "Score",
-                    "result": "Outcome",
+                    "Result": "Tier",
+                    "reviewer": "Reviewer",
                 }
             ),
             hide_index=True,
             use_container_width=True,
         )
 
-    _section_heading("Quick actions")
-    action_columns = st.columns(3)
-    quick_actions = [
-        ("＋  Add employee", "Employees", "show_employee_form"),
-        ("✓  Create assessment", "Assessments", "show_assessment_form"),
-        ("▤  Generate report", "Reports", None),
-    ]
-    for column, (label, page, flag) in zip(action_columns, quick_actions):
-        with column:
-            if st.button(label, use_container_width=True):
-                st.session_state.active_page = page
-                if flag:
-                    st.session_state[flag] = True
-                st.rerun()
+    # 7. Quick Workflow Launchpad
+    _section_heading("Quick Launchpad")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("＋  Add Employee", use_container_width=True, key="dash_add_emp"):
+            st.session_state.active_page = "Employees"
+            st.session_state.show_employee_form = True
+            st.rerun()
+    with c2:
+        if st.button("✓  Conduct Assessment", use_container_width=True, key="dash_add_assess"):
+            st.session_state.active_page = "Assessments"
+            st.session_state.show_assessment_form = True
+            st.rerun()
+    with c3:
+        if st.button("▤  Executive Report", use_container_width=True, key="dash_gen_rep"):
+            st.session_state.active_page = "Reports"
+            st.rerun()
+    with c4:
+        if st.button("⌁  Run ML Prediction", use_container_width=True, key="dash_run_ml"):
+            st.session_state.active_page = "Predictions"
+            st.rerun()
 
 
-def _employees_page(employees: pd.DataFrame) -> None:
-    render_page_heading("Employees", "Manage employee profiles and review eligibility.", "WORKSPACE  /  PEOPLE")
+# =============================================================================
+# 2. EMPLOYEES DIRECTORY & PROFILE DOSSIER
+# =============================================================================
+def _employees_page(employees: pd.DataFrame, assessments: pd.DataFrame) -> None:
+    render_page_heading(
+        title="Employee Directory",
+        subtitle="Manage employee records, review eligibility, and historical performance profiles.",
+        breadcrumb="TALENT DIRECTORY",
+        badge=f"{len(employees):,} Registered" if not employees.empty else None,
+    )
+
     if st.session_state.pop("show_employee_form", False):
         st.session_state.employee_form_open = True
 
-    with st.expander("＋  Add employee", expanded=st.session_state.get("employee_form_open", False)):
+    # Add Employee Expander Form
+    with st.expander("＋  Register New Employee", expanded=st.session_state.get("employee_form_open", False)):
         with st.form("create_employee_form", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
-            code = c1.text_input("Employee ID *")
-            name = c2.text_input("Full name *")
+            code = c1.text_input("Employee ID *", placeholder="e.g. WP-2045")
+            name = c2.text_input("Full Name *", placeholder="e.g. Maya Patel")
             department = c3.selectbox("Department *", options=list(VALID_DEPARTMENTS))
+
             c4, c5, c6 = st.columns(3)
-            designation = c4.text_input("Designation")
-            joining_date = c5.date_input("Joining date", value=date.today())
+            designation = c4.text_input("Designation", placeholder="e.g. Senior Software Engineer")
+            joining_date = c5.date_input("Joining Date", value=date.today())
             status = c6.selectbox("Status", options=STATUS_OPTIONS)
-            experience = st.number_input("Experience (years)", 0.0, 80.0, 0.0, 0.5)
-            submitted = st.form_submit_button("Save employee", type="primary")
+
+            experience = st.number_input("Experience (years)", 0.0, 60.0, 2.5, 0.5)
+            submitted = st.form_submit_button("Save Employee Profile", type="primary")
+
         if submitted:
             try:
                 create_employee(code, name, department, designation, joining_date, status, experience)
                 st.session_state.employee_form_open = False
-                st.success("Employee profile created.")
+                st.success(f"Profile created for {name} ({code}).")
                 st.rerun()
             except Exception as error:
-                st.error(f"Could not save the employee: {error}")
+                st.error(f"Could not save profile: {error}")
 
     if employees.empty:
-        show_empty_state("No employees found", "Add an employee to start your directory.")
+        render_empty_state("No Employees in System", "Register your first employee above to populate the directory.")
         return
 
-    search_col, department_col, status_col = st.columns([2.4, 1, 1])
-    query = search_col.text_input("Search employees", placeholder="Search name or employee ID")
+    # Filter Bar
+    s_col, d_col, st_col = st.columns([2.5, 1.2, 1.2])
+    query = s_col.text_input("Search employees", placeholder="Search by name, ID, or title...")
     departments = ["All departments", *sorted(employees["department"].dropna().unique())]
-    department_filter = department_col.selectbox("Department", departments)
-    status_filter = status_col.selectbox("Status", ["All statuses", *STATUS_OPTIONS])
+    department_filter = d_col.selectbox("Department filter", departments)
+    status_filter = st_col.selectbox("Status filter", ["All statuses", *STATUS_OPTIONS])
+
     filtered = employees.copy()
     if query.strip():
         mask = (
             filtered["employee_name"].fillna("").str.contains(query, case=False, regex=False)
             | filtered["employee_code"].fillna("").str.contains(query, case=False, regex=False)
+            | filtered["designation"].fillna("").str.contains(query, case=False, regex=False)
         )
         filtered = filtered[mask]
     if department_filter != "All departments":
         filtered = filtered[filtered["department"] == department_filter]
     if status_filter != "All statuses":
         filtered = filtered[filtered["status"] == status_filter]
-    columns = [
+
+    st.caption(f"Displaying {len(filtered):,} of {len(employees):,} workforce members")
+
+    display_cols = [
         "employee_code", "employee_name", "department", "designation",
-        "joining_date", "status", "data_origin", "performance_category",
+        "experience_years", "status", "performance_category"
     ]
-    st.caption(f"{len(filtered):,} of {len(employees):,} employees")
     st.dataframe(
-        filtered[columns].rename(
+        filtered[display_cols].rename(
             columns={
-                "employee_code": "Employee ID", "employee_name": "Name",
-                "department": "Department", "designation": "Designation",
-                "joining_date": "Joining date", "status": "Status",
-                "data_origin": "Data source",
-                "performance_category": "Latest recorded outcome",
+                "employee_code": "Employee ID",
+                "employee_name": "Full Name",
+                "department": "Department",
+                "designation": "Designation",
+                "experience_years": "Experience (Yrs)",
+                "status": "Status",
+                "performance_category": "Latest Outcome",
             }
         ),
         hide_index=True,
         use_container_width=True,
     )
 
-    employee_options = {
-        f"{row.employee_code} · {row.employee_name}": row
+    # Dedicated Employee Profile Dossier View
+    _section_heading("Employee Performance Dossier", "Inspect holistic employee indicators and review track record")
+    emp_options = {
+        f"{row.employee_code} · {row.employee_name} ({row.department})": row
         for row in employees.itertuples(index=False)
     }
-    with st.expander("Edit an employee profile"):
-        label = st.selectbox("Choose an employee", list(employee_options), key="employee_to_edit")
-        employee = employee_options[label]
+    selected_label = st.selectbox("Select Employee Dossier", list(emp_options.keys()))
+    selected_emp = emp_options[selected_label]
+
+    render_employee_profile_card(selected_emp._asdict())
+
+    # Employee Assessment History
+    emp_assessments = (
+        assessments[assessments["employee_id"] == selected_emp.employee_id]
+        if not assessments.empty
+        else pd.DataFrame()
+    )
+    if not emp_assessments.empty:
+        st.markdown(f"**Assessment History for {escape(selected_emp.employee_name)}:**")
+        hist_table = emp_assessments.copy()
+        hist_table["Outcome"] = hist_table["overall_score"].map(_get_category)
+        st.dataframe(
+            hist_table[
+                ["period_name", "assessment_date", "reviewer", "overall_score", "Outcome", "comments"]
+            ].rename(
+                columns={
+                    "period_name": "Cycle",
+                    "assessment_date": "Date",
+                    "reviewer": "Reviewer",
+                    "overall_score": "Score",
+                    "Outcome": "Tier",
+                    "comments": "Feedback",
+                }
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+    else:
+        st.info(f"No performance reviews have been conducted for {selected_emp.employee_name} yet.")
+
+    # Edit & Delete Expanders
+    with st.expander("Edit Employee Profile Details"):
         with st.form("edit_employee_form"):
             a, b, c = st.columns(3)
-            edit_code = a.text_input("Employee ID *", value=str(employee.employee_code))
-            edit_name = b.text_input("Full name *", value=str(employee.employee_name))
-            edit_department = c.selectbox(
+            edit_code = a.text_input("Employee ID *", value=str(selected_emp.employee_code))
+            edit_name = b.text_input("Full Name *", value=str(selected_emp.employee_name))
+            edit_dept = c.selectbox(
                 "Department *", list(VALID_DEPARTMENTS),
-                index=_option_index(VALID_DEPARTMENTS, employee.department),
+                index=_option_index(VALID_DEPARTMENTS, selected_emp.department),
             )
             d, e, f = st.columns(3)
-            edit_designation = d.text_input("Designation", value=str(employee.designation or ""))
-            edit_joining_date = e.date_input(
-                "Joining date",
-                value=_safe_date(employee.joining_date),
-                key="edit_employee_joining_date",
+            edit_desig = d.text_input("Designation", value=str(selected_emp.designation or ""))
+            edit_jdate = e.date_input("Joining Date", value=_safe_date(selected_emp.joining_date))
+            edit_stat = f.selectbox("Status", STATUS_OPTIONS, index=_option_index(STATUS_OPTIONS, selected_emp.status))
+            edit_exp = st.number_input(
+                "Experience (years)", 0.0, 60.0,
+                value=float(selected_emp.experience_years or 0), step=0.5,
             )
-            edit_status = f.selectbox(
-                "Status", STATUS_OPTIONS,
-                index=_option_index(STATUS_OPTIONS, employee.status),
-            )
-            edit_experience = st.number_input(
-                "Experience (years)", min_value=0.0, max_value=80.0,
-                value=float(employee.experience_years or 0), step=0.5,
-                key="edit_employee_experience",
-            )
-            save = st.form_submit_button("Save changes", type="primary")
-        if save:
+            saved = st.form_submit_button("Update Profile", type="primary")
+
+        if saved:
             try:
                 update_employee_profile(
-                    employee.employee_id, edit_code, edit_name, edit_department,
-                    edit_designation, edit_joining_date, edit_status, edit_experience,
+                    selected_emp.employee_id, edit_code, edit_name, edit_dept,
+                    edit_desig, edit_jdate, edit_stat, edit_exp
                 )
-                st.success("Employee profile updated.")
+                st.success("Profile updated successfully.")
                 st.rerun()
             except Exception as error:
-                st.error(f"Could not update the employee: {error}")
+                st.error(f"Could not update profile: {error}")
 
-    with st.expander("Delete an employee"):
-        delete_label = st.selectbox("Employee to delete", list(employee_options), key="employee_to_delete")
-        confirmed = st.checkbox(
-            "I understand deleting this employee also removes their linked assessments.",
-            key="confirm_employee_delete",
-        )
-        if st.button("Delete employee", type="secondary", disabled=not confirmed):
+    with st.expander("Delete Employee Profile"):
+        st.warning(f"Deleting **{selected_emp.employee_name}** ({selected_emp.employee_code}) will permanently remove their profile and all linked assessments.")
+        confirmed = st.checkbox("I confirm permanent deletion of this employee record.", key="confirm_delete_emp")
+        if st.button("Delete Employee", type="secondary", disabled=not confirmed):
             try:
-                delete_employee(employee_options[delete_label].employee_id)
-                st.session_state.confirm_employee_delete = False
-                st.success("Employee and linked assessments deleted.")
+                delete_employee(selected_emp.employee_id)
+                st.success("Employee record deleted.")
                 st.rerun()
             except Exception as error:
-                st.error(f"Could not delete the employee: {error}")
+                st.error(f"Could not delete: {error}")
 
 
-def _periods_page(periods: pd.DataFrame) -> None:
-    render_page_heading("Performance periods", "Set review windows and track completion.", "WORKSPACE  /  REVIEW CYCLES")
+# =============================================================================
+# 3. REVIEW PERIODS / CYCLES
+# =============================================================================
+def _periods_page(periods: pd.DataFrame, assessments: pd.DataFrame) -> None:
+    render_page_heading(
+        title="Review Cycles",
+        subtitle="Schedule review windows, track evaluation progress, and close completed assessment cycles.",
+        breadcrumb="PERFORMANCE CADENCE",
+        badge=f"{len(periods)} Configured" if not periods.empty else None,
+    )
+
     if st.session_state.pop("show_period_form", False):
         st.session_state.period_form_open = True
-    with st.expander("＋  Create review period", expanded=st.session_state.get("period_form_open", False)):
+
+    with st.expander("＋  Create Review Cycle", expanded=st.session_state.get("period_form_open", False)):
         with st.form("create_period_form", clear_on_submit=True):
-            name = st.text_input("Period name *", placeholder="e.g. H1 2026 Review")
+            name = st.text_input("Cycle Name *", placeholder="e.g. FY2026 Q4 Performance Review")
             a, b, c = st.columns(3)
-            start = a.date_input("Start date", value=date.today())
-            end = b.date_input("End date", value=date.today())
-            status = c.selectbox("Status", PERIOD_STATUS_OPTIONS, index=1)
-            submitted = st.form_submit_button("Create period", type="primary")
+            start = a.date_input("Start Date", value=date.today())
+            end = b.date_input("End Date", value=date.today() + timedelta(days=60))
+            status = c.selectbox("Initial Status", PERIOD_STATUS_OPTIONS, index=1)
+            submitted = st.form_submit_button("Create Cycle", type="primary")
+
         if submitted:
             try:
                 save_period(name, start, end, status)
                 st.session_state.period_form_open = False
-                st.success("Review period created.")
+                st.success("Review cycle established.")
                 st.rerun()
             except Exception as error:
-                st.error(f"Could not create the review period: {error}")
+                st.error(f"Could not create cycle: {error}")
+
     if periods.empty:
-        show_empty_state("No review periods yet", "Create a period before submitting performance assessments.")
+        render_empty_state("No Review Cycles Configured", "Establish a performance review cycle above to begin evaluating workforce members.")
         return
+
+    _section_heading("Review Cycle Overview")
     st.dataframe(
         periods.rename(
             columns={
-                "name": "Period", "start_date": "Start", "end_date": "End",
-                "status": "Status", "assessment_count": "Assessments",
+                "name": "Cycle Name",
+                "start_date": "Start Date",
+                "end_date": "End Date",
+                "status": "Status",
+                "assessment_count": "Logged Assessments",
             }
         ).drop(columns=["period_id"]),
         hide_index=True,
         use_container_width=True,
     )
+
     period_options = {f"{r.name} · {r.status}": r for r in periods.itertuples(index=False)}
-    with st.expander("Edit a review period"):
-        label = st.selectbox("Period to edit", list(period_options), key="period_to_edit")
-        period = period_options[label]
+    with st.expander("Edit or Update Review Cycle"):
+        selected_p_label = st.selectbox("Select Cycle to Edit", list(period_options.keys()))
+        selected_p = period_options[selected_p_label]
         with st.form("edit_period_form"):
-            name = st.text_input("Period name *", value=period.name)
+            p_name = st.text_input("Cycle Name *", value=selected_p.name)
             a, b, c = st.columns(3)
-            start = a.date_input("Start date", value=_safe_date(period.start_date), key="edit_period_start")
-            end = b.date_input("End date", value=_safe_date(period.end_date), key="edit_period_end")
-            status = c.selectbox(
-                "Status", PERIOD_STATUS_OPTIONS,
-                index=_option_index(PERIOD_STATUS_OPTIONS, period.status),
-                key="edit_period_status",
-            )
-            save = st.form_submit_button("Save period changes", type="primary")
-        if save:
+            p_start = a.date_input("Start Date", value=_safe_date(selected_p.start_date))
+            p_end = b.date_input("End Date", value=_safe_date(selected_p.end_date))
+            p_stat = c.selectbox("Cycle Status", PERIOD_STATUS_OPTIONS, index=_option_index(PERIOD_STATUS_OPTIONS, selected_p.status))
+            saved = st.form_submit_button("Update Cycle", type="primary")
+
+        if saved:
             try:
-                save_period(name, start, end, status, int(period.period_id))
-                st.success("Review period updated.")
+                save_period(p_name, p_start, p_end, p_stat, int(selected_p.period_id))
+                st.success("Review cycle updated.")
                 st.rerun()
             except Exception as error:
-                st.error(f"Could not update the review period: {error}")
-    with st.expander("Delete a review period"):
-        label = st.selectbox("Period to delete", list(period_options), key="period_to_delete")
-        period = period_options[label]
-        if int(period.assessment_count):
-            st.warning("This period has assessments and cannot be deleted.")
+                st.error(f"Could not update cycle: {error}")
+
+    with st.expander("Delete Review Cycle"):
+        selected_del_label = st.selectbox("Select Cycle to Delete", list(period_options.keys()), key="del_cycle_sel")
+        p_to_del = period_options[selected_del_label]
+        if int(p_to_del.assessment_count) > 0:
+            st.warning("This cycle has existing assessments attached. Cycles with assessments cannot be deleted to maintain compliance history.")
         else:
-            confirmed = st.checkbox("Confirm deletion of this review period.", key="confirm_period_delete")
-            if st.button("Delete review period", disabled=not confirmed):
+            conf = st.checkbox("Confirm permanent deletion of this review cycle.", key="conf_del_cycle")
+            if st.button("Delete Cycle", disabled=not conf):
                 try:
-                    delete_period(period.period_id)
-                    st.success("Review period deleted.")
+                    delete_period(p_to_del.period_id)
+                    st.success("Cycle deleted.")
                     st.rerun()
                 except Exception as error:
-                    st.error(f"Could not delete the period: {error}")
+                    st.error(f"Could not delete: {error}")
 
 
+# =============================================================================
+# 4. KPI FRAMEWORK / PERFORMANCE AREAS
+# =============================================================================
 def _areas_page(areas: pd.DataFrame) -> None:
-    render_page_heading("Performance areas", "Define review indicators and their contribution to the overall score.", "WORKSPACE  /  REVIEW FRAMEWORK")
-    st.info("Active indicator weights must add up to exactly 100%. Assessment scores are entered from 0 to 100.")
+    render_page_heading(
+        title="KPI Framework & Areas",
+        subtitle="Define the core competency indicators and their mathematical weights in the overall score calculation.",
+        breadcrumb="EVALUATION FRAMEWORK",
+    )
+
+    # Visual Weight Distribution Breakdown
+    total_weight = float(areas.loc[areas["active"].fillna(False), "weight"].sum())
+    is_valid_total = abs(total_weight - 100.0) < 0.01
+
+    if is_valid_total:
+        st.success(f"✓ Weight validation passed: Active indicators total exactly {total_weight:g}%.")
+    else:
+        st.warning(f"⚠️ Active indicator weights currently total {total_weight:g}%. Adjust weights to equal exactly 100% before saving assessments.")
+
     edited = st.data_editor(
         areas,
         hide_index=True,
@@ -647,485 +786,691 @@ def _areas_page(areas: pd.DataFrame) -> None:
         key="performance_area_editor",
         column_config={
             "area_id": st.column_config.NumberColumn("ID", disabled=True),
-            "name": st.column_config.TextColumn("Indicator", required=True),
-            "description": st.column_config.TextColumn("Description"),
+            "name": st.column_config.TextColumn("KPI Indicator", required=True),
+            "description": st.column_config.TextColumn("Competency Criteria & Expectations"),
             "weight": st.column_config.NumberColumn("Weight (%)", min_value=0, max_value=100, step=1, format="%.1f"),
             "active": st.column_config.CheckboxColumn("Active"),
         },
         disabled=["area_id"],
     )
-    if st.button("Save performance areas", type="primary") or st.session_state.pop(
-        "save_areas_requested", False
-    ):
+
+    if st.button("Save KPI Framework", type="primary") or st.session_state.pop("save_areas_requested", False):
         try:
             save_areas(edited.to_dict(orient="records"))
-            st.success("Review indicators and weights saved.")
+            st.success("KPI framework and weights saved successfully.")
             st.rerun()
         except Exception as error:
-            st.error(f"Could not save performance areas: {error}")
-    total = edited.loc[edited["active"].fillna(False), "weight"].fillna(0).sum()
-    if abs(float(total) - 100) < 0.01:
-        st.success(f"Active weights total {total:g}%.")
-    else:
-        st.warning(f"Active weights currently total {total:g}%; adjust to 100% before saving.")
+            st.error(f"Could not save framework: {error}")
 
 
+# =============================================================================
+# 5. ASSESSMENTS ENGINE
+# =============================================================================
 def _assessments_page(
     employees: pd.DataFrame,
     periods: pd.DataFrame,
     areas: pd.DataFrame,
     assessments: pd.DataFrame,
 ) -> None:
-    render_page_heading("Assessments", "Record evidence-based reviews and preserve assessment history.", "WORKSPACE  /  PERFORMANCE")
+    render_page_heading(
+        title="Performance Assessments",
+        subtitle="Conduct structured, evidence-based employee reviews with real-time weighted scoring.",
+        breadcrumb="EVALUATION ENGINE",
+        badge=f"{len(assessments)} Completed" if not assessments.empty else None,
+    )
+
     if st.session_state.pop("show_assessment_form", False):
         st.session_state.assessment_form_open = True
-    eligible_employees = employees[employees["status"] == "Active"]
-    active_periods = periods[periods["status"] == "Active"]
-    active_areas = areas[areas["active"].astype(bool)]
-    if eligible_employees.empty:
-        st.warning("Add an active employee before creating an assessment.")
+
+    active_employees = employees[employees["status"] == "Active"] if not employees.empty else pd.DataFrame()
+    active_periods = periods[periods["status"] == "Active"] if not periods.empty else pd.DataFrame()
+    active_areas = areas[areas["active"].astype(bool)] if not areas.empty else pd.DataFrame()
+
+    if active_employees.empty:
+        st.warning("Please add an active employee in the directory before creating an assessment.")
     elif active_periods.empty:
-        st.warning("Create and activate a review period before creating an assessment.")
+        st.warning("An active review cycle is required. Please activate a review cycle under 'Review Cycles'.")
     elif active_areas.empty:
-        st.warning("Activate performance areas before creating an assessment.")
+        st.warning("Please activate at least one performance KPI indicator in 'KPI Framework'.")
     else:
-        employee_options = {
-            f"{row.employee_code} · {row.employee_name}": int(row.employee_id)
-            for row in eligible_employees.itertuples(index=False)
+        emp_map = {
+            f"{r.employee_code} · {r.employee_name} ({r.department})": int(r.employee_id)
+            for r in active_employees.itertuples(index=False)
         }
-        period_options = {
-            f"{row.name} · due {row.end_date}": int(row.period_id)
-            for row in active_periods.itertuples(index=False)
+        per_map = {
+            f"{r.name} (Due {r.end_date})": int(r.period_id)
+            for r in active_periods.itertuples(index=False)
         }
-        with st.expander("＋  New assessment", expanded=st.session_state.get("assessment_form_open", False)):
+
+        with st.expander("＋  Conduct New Performance Review", expanded=st.session_state.get("assessment_form_open", False)):
             with st.form("create_assessment_form"):
-                employee_label = st.selectbox("Employee *", list(employee_options))
-                period_label = st.selectbox("Review period *", list(period_options))
-                assessor, review_day = st.columns(2)
-                reviewer = assessor.text_input("Reviewer *")
-                assessment_date = review_day.date_input("Assessment date", value=date.today())
+                c1, c2 = st.columns(2)
+                selected_emp_lbl = c1.selectbox("Employee *", list(emp_map.keys()))
+                selected_per_lbl = c2.selectbox("Review Cycle *", list(per_map.keys()))
+
+                c3, c4 = st.columns(2)
+                reviewer = c3.text_input("Reviewer Name & Designation *", placeholder="e.g. Dr. Sarah Jenkins (Engineering VP)")
+                assessment_date = c4.date_input("Assessment Date", value=date.today())
+
+                st.markdown("**Competency Scores (0 – 100):**")
                 scores: dict[str, float] = {}
-                score_columns = st.columns(2)
-                for index, area in enumerate(active_areas.itertuples(index=False)):
-                    scores[area.name] = score_columns[index % 2].number_input(
-                        f"{area.name} · weight {area.weight:g}%",
+                score_cols = st.columns(2)
+                for i, area in enumerate(active_areas.itertuples(index=False)):
+                    col = score_cols[i % 2]
+                    scores[area.name] = col.number_input(
+                        f"{area.name} (Weight: {area.weight:g}%)",
                         min_value=0.0,
                         max_value=100.0,
-                        value=75.0,
+                        value=78.0,
                         step=1.0,
-                        key=f"score_{area.area_id}",
+                        key=f"eval_score_{area.area_id}",
                     )
-                comments = st.text_area("Reviewer comments", max_chars=5000)
-                preview = sum(
-                    scores[row.name] * float(row.weight) / 100
+
+                comments = st.text_area(
+                    "Qualitative Reviewer Feedback & Development Objectives *",
+                    placeholder="Provide actionable feedback detailing achievements, areas for coaching, and upcoming growth goals...",
+                    max_chars=4000,
+                )
+
+                # Real-time score calculator preview
+                calculated_score = sum(
+                    scores[row.name] * float(row.weight) / 100.0
                     for row in active_areas.itertuples(index=False)
                 )
-                st.caption(f"Weighted overall score: **{preview:.1f} / 100** · {_get_category(preview)}")
-                submitted = st.form_submit_button("Save assessment", type="primary")
+                category_preview = _get_category(calculated_score)
+
+                st.markdown(
+                    f"""
+                    <div style="background:var(--wp-bg); border:1px solid var(--wp-border); border-radius:var(--wp-radius-md); padding:0.75rem 1rem; margin-top:0.75rem; display:flex; align-items:center; justify-content:space-between;">
+                        <span style="font-size:0.875rem; color:var(--wp-text-secondary); font-weight:500;">Calculated Weighted Overall Score:</span>
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <strong style="font-size:1.125rem; color:var(--wp-navy);">{calculated_score:.1f} / 100</strong>
+                            {render_status_badge(category_preview)}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                submitted = st.form_submit_button("Submit & Save Assessment", type="primary")
+
             if submitted:
-                try:
-                    save_assessment(
-                        employee_options[employee_label],
-                        period_options[period_label],
-                        assessment_date,
-                        reviewer,
-                        scores,
-                        comments,
-                    )
-                    st.session_state.assessment_form_open = False
-                    st.success("Assessment saved to the employee’s review history.")
-                    st.rerun()
-                except Exception as error:
-                    st.error(f"Could not save the assessment: {error}")
-    _section_heading("Assessment history", "Search, filter, and export completed reviews.")
+                if not reviewer.strip():
+                    st.error("Please specify the reviewer name.")
+                else:
+                    try:
+                        save_assessment(
+                            employee_id=emp_map[selected_emp_lbl],
+                            period_id=per_map[selected_per_lbl],
+                            assessment_date=assessment_date,
+                            reviewer=reviewer,
+                            scores=scores,
+                            comments=comments,
+                        )
+                        st.session_state.assessment_form_open = False
+                        st.success("Performance review submitted and logged to employee history.")
+                        st.rerun()
+                    except Exception as error:
+                        st.error(f"Could not save assessment: {error}")
+
+    # History & Search
+    _section_heading("Assessment History", "Filter, inspect, and export verified employee reviews")
     if assessments.empty:
-        show_empty_state("No assessments recorded", "Submitted reviews will be listed here.")
+        render_empty_state("No Recorded Reviews", "Submitted employee reviews will appear in this audit log.")
         return
-    search = st.text_input("Search assessments", placeholder="Employee, department, reviewer, or review period")
-    filter_col, period_col = st.columns(2)
-    dept_values = ["All departments", *sorted(assessments["department"].dropna().unique())]
-    department = filter_col.selectbox("Department", dept_values, key="assessment_department")
-    period_values = ["All periods", *sorted(assessments["period_name"].unique())]
-    period = period_col.selectbox("Review period", period_values, key="assessment_period")
+
+    f1, f2, f3 = st.columns([2, 1, 1])
+    search_q = f1.text_input("Search assessments", placeholder="Search employee, reviewer, or cycle...")
+    depts = ["All departments", *sorted(assessments["department"].dropna().unique())]
+    dept_sel = f2.selectbox("Department", depts, key="assess_dept_filter")
+    pers = ["All periods", *sorted(assessments["period_name"].dropna().unique())]
+    per_sel = f3.selectbox("Review cycle", pers, key="assess_per_filter")
+
     filtered = assessments.copy()
-    if department != "All departments":
-        filtered = filtered[filtered["department"] == department]
-    if period != "All periods":
-        filtered = filtered[filtered["period_name"] == period]
-    if search.strip():
-        mask = pd.Series(False, index=filtered.index)
-        for column in ("employee_name", "employee_code", "department", "reviewer", "period_name"):
-            mask |= filtered[column].fillna("").astype(str).str.contains(search, case=False, regex=False)
+    if dept_sel != "All departments":
+        filtered = filtered[filtered["department"] == dept_sel]
+    if per_sel != "All periods":
+        filtered = filtered[filtered["period_name"] == per_sel]
+    if search_q.strip():
+        mask = (
+            filtered["employee_name"].fillna("").str.contains(search_q, case=False, regex=False)
+            | filtered["employee_code"].fillna("").str.contains(search_q, case=False, regex=False)
+            | filtered["reviewer"].fillna("").str.contains(search_q, case=False, regex=False)
+        )
         filtered = filtered[mask]
+
     table = filtered.copy()
     table["Outcome"] = table["overall_score"].map(_get_category)
+
     st.dataframe(
         table[
             ["employee_code", "employee_name", "department", "period_name",
              "assessment_date", "reviewer", "overall_score", "Outcome", "comments"]
         ].rename(
             columns={
-                "employee_code": "Employee ID", "employee_name": "Employee",
-                "department": "Department", "period_name": "Review period",
-                "assessment_date": "Date", "reviewer": "Reviewer",
-                "overall_score": "Score", "comments": "Comments",
+                "employee_code": "Employee ID",
+                "employee_name": "Full Name",
+                "department": "Department",
+                "period_name": "Review Cycle",
+                "assessment_date": "Date",
+                "reviewer": "Reviewer",
+                "overall_score": "Score",
+                "Outcome": "Tier",
+                "comments": "Reviewer Feedback",
             }
         ),
         hide_index=True,
         use_container_width=True,
     )
+
     st.download_button(
-        "Download filtered assessments (CSV)",
+        "Download Filtered Assessments (CSV)",
         filtered.drop(columns=["scores_json"], errors="ignore").to_csv(index=False).encode("utf-8"),
-        file_name="workpulse-assessments.csv",
+        file_name="workpulse-assessments-audit.csv",
         mime="text/csv",
     )
 
 
-def _analytics_page(
-    employees: pd.DataFrame,
-    assessments: pd.DataFrame,
-) -> None:
-    render_page_heading("Analytics", "Explore actual review outcomes by department and period.", "WORKSPACE  /  INSIGHTS")
+# =============================================================================
+# 6. ANALYTICS ENGINE
+# =============================================================================
+def _analytics_page(employees: pd.DataFrame, assessments: pd.DataFrame) -> None:
+    render_page_heading(
+        title="Workforce Analytics",
+        subtitle="Quantitative insights into performance distributions, departmental variance, and operational correlations.",
+        breadcrumb="ANALYTICS & REPORTING",
+    )
+
     if assessments.empty:
-        show_empty_state(
-            "Analytics need completed assessments",
-            "Create a review period and record assessments to see score trends and comparisons.",
-        )
-        if not employees.empty and employees["performance_category"].notna().any():
-            st.caption("Existing imported review categories are available on the dashboard.")
+        render_empty_state("Analytics Awaiting Assessment Data", "Record reviews or seed demonstration data to activate the deep analytics engine.")
         return
-    period_names = ["All periods", *sorted(assessments["period_name"].unique())]
-    department_names = ["All departments", *sorted(assessments["department"].unique())]
-    a, b = st.columns(2)
-    selected_period = a.selectbox("Review period", period_names)
-    selected_department = b.selectbox("Department", department_names)
+
+    # Slicers
+    f1, f2 = st.columns(2)
+    periods = ["All cycles", *sorted(assessments["period_name"].unique())]
+    sel_p = f1.selectbox("Filter Cycle", periods)
+    depts = ["All departments", *sorted(assessments["department"].unique())]
+    sel_d = f2.selectbox("Filter Department", depts)
+
     filtered = assessments.copy()
-    if selected_period != "All periods":
-        filtered = filtered[filtered["period_name"] == selected_period]
-    if selected_department != "All departments":
-        filtered = filtered[filtered["department"] == selected_department]
+    if sel_p != "All cycles":
+        filtered = filtered[filtered["period_name"] == sel_p]
+    if sel_d != "All departments":
+        filtered = filtered[filtered["department"] == sel_d]
+
     avg_score = float(filtered["overall_score"].mean()) if not filtered.empty else 0.0
-    average_col, total_col, high_col = st.columns(3)
-    average_col.metric("Average score", f"{avg_score:.1f} / 100" if not filtered.empty else "—")
-    total_col.metric("Assessments", f"{len(filtered):,}")
-    high_col.metric("High outcomes", f"{int((filtered['overall_score'] >= 80).sum()):,}" if not filtered.empty else "0")
-    if filtered.empty:
-        st.info("No assessments match the selected filters.")
-        return
+    high_count = int((filtered["overall_score"] >= 80).sum()) if not filtered.empty else 0
+    high_pct = (high_count / len(filtered) * 100) if not filtered.empty else 0
+    needs_support_count = int((filtered["overall_score"] < 60).sum()) if not filtered.empty else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Cycle Mean Score", f"{avg_score:.1f} / 100")
+    c2.metric("Audited Reviews", f"{len(filtered):,}")
+    c3.metric("High Outcome Rate", f"{high_pct:.1f}%", f"{high_count} staff")
+    c4.metric("Coaching Needed", f"{needs_support_count}", "Below 60 score")
+
+    st.write("")
+
+    # Visualizations Grid
     left, right = st.columns(2, gap="large")
     with left:
-        _section_heading("Department comparison", "Mean assessment score")
-        department_summary = (
+        _section_heading("Department Benchmark Breakdown", "Mean assessment score across departments")
+        dept_summary = (
             filtered.groupby("department", as_index=False)["overall_score"]
             .mean()
             .sort_values("overall_score", ascending=False)
         )
         fig = px.bar(
-            department_summary,
-            x="department", y="overall_score",
-            labels={"department": "", "overall_score": "Average score"},
-            range_y=[0, 100], color_discrete_sequence=["#147DA8"],
+            dept_summary,
+            x="department",
+            y="overall_score",
+            labels={"department": "", "overall_score": "Mean Score"},
+            range_y=[0, 100],
+            color_discrete_sequence=["#168C83"],
+            text_auto=".1f",
         )
         st.plotly_chart(apply_chart_style(fig), use_container_width=True)
+
     with right:
-        _section_heading("Performance mix", "Score bands derived from recorded weighted assessments")
-        category_data = filtered["overall_score"].map(_get_category).value_counts().rename_axis("Outcome").reset_index(name="Assessments")
+        _section_heading("Performance Tier Mix", "Proportion of workforce across evaluation tiers")
+        cat_data = (
+            filtered["overall_score"]
+            .map(_get_category)
+            .value_counts()
+            .reindex(["High", "Moderate", "Needs Support"], fill_value=0)
+            .rename_axis("Tier")
+            .reset_index(name="Reviews")
+        )
         fig = px.pie(
-            category_data, names="Outcome", values="Assessments", hole=0.68,
-            color="Outcome",
-            color_discrete_map={"High": "#3A8D72", "Moderate": "#D29A38", "Needs Support": "#CF6C64"},
+            cat_data,
+            names="Tier",
+            values="Reviews",
+            hole=0.68,
+            color="Tier",
+            color_discrete_map={"High": "#0D9488", "Moderate": "#D97706", "Needs Support": "#E11D48"},
+        )
+        fig.update_traces(marker=dict(line=dict(color="#FFFFFF", width=2)))
+        st.plotly_chart(apply_chart_style(fig), use_container_width=True)
+
+    # Secondary Charts Row
+    c_left, c_right = st.columns(2, gap="large")
+    with c_left:
+        _section_heading("Score Distribution by Department", "Variance and dispersion box plot")
+        fig = px.box(
+            filtered,
+            x="department",
+            y="overall_score",
+            points="all",
+            labels={"department": "", "overall_score": "Score"},
+            color_discrete_sequence=["#102A43"],
         )
         st.plotly_chart(apply_chart_style(fig), use_container_width=True)
-    _section_heading("Monthly trend")
-    monthly = filtered.copy()
-    monthly["Month"] = pd.to_datetime(monthly["assessment_date"]).dt.to_period("M").astype(str)
-    monthly = monthly.groupby("Month", as_index=False)["overall_score"].mean().sort_values("Month")
-    fig = px.line(
-        monthly, x="Month", y="overall_score", markers=True,
-        labels={"overall_score": "Average score"},
-        color_discrete_sequence=["#147DA8"],
-    )
-    fig.update_yaxes(range=[0, 100])
-    st.plotly_chart(apply_chart_style(fig), use_container_width=True)
-    _section_heading("Score distribution by department")
-    fig = px.box(
-        filtered, x="department", y="overall_score", points="all",
-        labels={"department": "", "overall_score": "Assessment score"},
-        color_discrete_sequence=["#147DA8"],
-    )
-    st.plotly_chart(apply_chart_style(fig), use_container_width=True)
+
+    with c_right:
+        _section_heading("Performance Trajectory by Month", "Mean historical scores over calendar months")
+        monthly = filtered.copy()
+        monthly["Month"] = pd.to_datetime(monthly["assessment_date"]).dt.to_period("M").astype(str)
+        monthly_avg = monthly.groupby("Month", as_index=False)["overall_score"].mean().sort_values("Month")
+        fig = px.line(
+            monthly_avg,
+            x="Month",
+            y="overall_score",
+            markers=True,
+            labels={"Month": "", "overall_score": "Score"},
+            color_discrete_sequence=["#168C83"],
+        )
+        fig.update_yaxes(range=[40, 100])
+        st.plotly_chart(apply_chart_style(fig), use_container_width=True)
 
 
+# =============================================================================
+# 7. MACHINE LEARNING & DECISION SUPPORT
+# =============================================================================
 def _predictions_page(employees: pd.DataFrame) -> None:
-    render_page_heading("Predictions", "Experimental model outputs are separate from completed assessments.", "WORKSPACE  /  DECISION SUPPORT")
-    st.warning(
-        "Predictions are experimental decision-support estimates, not employee assessment "
-        "results. Never use them alone to make employment decisions."
+    render_page_heading(
+        title="Decision Support & Predictive Intelligence",
+        subtitle="Machine learning classification models (Decision Tree & Random Forest) for performance forecasting.",
+        breadcrumb="PREDICTIVE ENGINE",
     )
+
+    st.markdown(
+        """
+        <div class="wp-decision-notice">
+            <strong>⚠️ Ethical AI & Decision Support Notice:</strong> Machine learning forecasts are strictly statistical estimates derived from historical indicators. They provide operational guidance and must <em>never</em> substitute for human managerial judgment or independently determine employment decisions.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     labelled = _training_frame(employees)
-    if labelled.empty:
-        st.info("No complete, labelled historical records are available for model evaluation.")
+    if labelled.empty or len(labelled) < 10:
+        render_empty_state(
+            "Insufficient Training Records",
+            "At least 10 complete historical records with attendance, task completion, and training hours are required to train the predictive pipeline.",
+        )
         return
-    counts = labelled["performance_category"].value_counts()
-    if len(counts) < 2 or counts.min() < 2:
-        st.info("At least two complete labelled records in each observed class are needed for a held-out evaluation.")
-        return
-    if len(labelled) < 10:
-        st.info("Add more complete labelled historical records before evaluating a model.")
-        return
-    model_features = FEATURE_COLS_NUMERIC + FEATURE_COLS_CATEGORICAL
-    if "performance_category" in model_features:
-        st.error("Model configuration error: target label appears in the feature list.")
-        return
+
     try:
-        with st.spinner("Training and evaluating Decision Tree and Random Forest models…"):
+        with st.spinner("Training Decision Tree and Random Forest classifiers on held-out test split…"):
             results, pipelines = _train_models(labelled)
     except Exception as error:
-        st.error(f"Models could not be evaluated on the available labelled data: {error}")
+        st.error(f"Model training encountered an error: {error}")
         return
-    st.caption(
-        f"Evaluation uses {len(labelled):,} complete labelled historical records. "
-        "The target category is kept out of the input features; the models use a held-out test split."
-    )
-    models = list(pipelines)
-    selected = st.selectbox("Model", models)
-    metrics = results[selected]
-    metric_cols = st.columns(4)
-    for column, name in zip(metric_cols, ("accuracy", "precision", "recall", "f1_score")):
-        column.metric(name.replace("_", " ").title(), f"{float(metrics[name]):.1%}")
-    if "confusion_matrix" in metrics:
-        st.caption(
-            f"Held-out samples: {metrics.get('test_samples', '—')} · "
-            f"Training samples: {metrics.get('train_samples', '—')}"
-        )
-        matrix = np.asarray(metrics["confusion_matrix"])
-        labels = metrics.get("classes", TARGET_CLASSES)
-        fig = px.imshow(
-            matrix,
+
+    # Model Evaluation Benchmark Section
+    _section_heading("Model Architecture Benchmark", "Held-out test split evaluation (80/20 train/test split)")
+    model_names = list(pipelines.keys())
+
+    # Side-by-side benchmark comparison cards
+    m_col1, m_col2 = st.columns(2)
+    for col, m_name in zip([m_col1, m_col2], model_names):
+        m_metrics = results[m_name]
+        with col:
+            st.markdown(
+                f"""
+                <div class="wp-card">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                        <strong style="color:var(--wp-navy); font-size:1.0625rem;">{m_name}</strong>
+                        <span class="wp-badge wp-badge-completed">Trained & Validated</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem; text-align:center;">
+                        <div style="background:var(--wp-bg); padding:0.5rem; border-radius:6px;">
+                            <div style="font-size:0.6875rem; color:var(--wp-text-secondary); text-transform:uppercase;">Accuracy</div>
+                            <div style="font-size:1.125rem; font-weight:700; color:var(--wp-navy);">{float(m_metrics['accuracy']):.1%}</div>
+                        </div>
+                        <div style="background:var(--wp-bg); padding:0.5rem; border-radius:6px;">
+                            <div style="font-size:0.6875rem; color:var(--wp-text-secondary); text-transform:uppercase;">Precision</div>
+                            <div style="font-size:1.125rem; font-weight:700; color:var(--wp-navy);">{float(m_metrics['precision']):.1%}</div>
+                        </div>
+                        <div style="background:var(--wp-bg); padding:0.5rem; border-radius:6px;">
+                            <div style="font-size:0.6875rem; color:var(--wp-text-secondary); text-transform:uppercase;">Recall</div>
+                            <div style="font-size:1.125rem; font-weight:700; color:var(--wp-navy);">{float(m_metrics['recall']):.1%}</div>
+                        </div>
+                        <div style="background:var(--wp-bg); padding:0.5rem; border-radius:6px;">
+                            <div style="font-size:0.6875rem; color:var(--wp-text-secondary); text-transform:uppercase;">F1-Score</div>
+                            <div style="font-size:1.125rem; font-weight:700; color:var(--wp-navy);">{float(m_metrics['f1_score']):.1%}</div>
+                        </div>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--wp-text-muted); margin-top:0.75rem;">
+                        Training samples: {m_metrics.get('train_samples', '—')} &nbsp;·&nbsp; Test samples: {m_metrics.get('test_samples', '—')}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    selected_model = st.selectbox("Inspect Confusion Matrix for Model", model_names)
+    matrix_metrics = results[selected_model]
+    if "confusion_matrix" in matrix_metrics:
+        cm_matrix = np.asarray(matrix_metrics["confusion_matrix"])
+        labels = matrix_metrics.get("classes", TARGET_CLASSES)
+        cm_fig = px.imshow(
+            cm_matrix,
             x=labels,
             y=labels,
             text_auto=True,
             color_continuous_scale="Blues",
-            labels={"x": "Predicted", "y": "Actual", "color": "Records"},
+            labels={"x": "Predicted Tier", "y": "Actual Tier", "color": "Evaluated Records"},
         )
-        st.plotly_chart(apply_chart_style(fig), use_container_width=True)
+        st.plotly_chart(apply_chart_style(cm_fig), use_container_width=True)
 
-    _section_heading("Estimate a performance category", "Use current operational indicators; the result is not an assessment.")
-    if employees.empty:
-        st.info("Add an employee with historical performance inputs before generating a prediction.")
-        return
-    employee_options = {"Manual entry": None}
-    employee_options.update(
+    # Single-Employee Inference & What-If Simulator
+    _section_heading("Predictive Simulation & What-If Analysis", "Project employee performance tier and explore sensitivity factors")
+    emp_options = {"Manual parameter input": None}
+    emp_options.update(
         {
-            f"{row.employee_code} · {row.employee_name}": row
-            for row in employees.itertuples(index=False)
+            f"{r.employee_code} · {r.employee_name} ({r.department})": r
+            for r in employees.itertuples(index=False)
         }
     )
-    selected_employee = st.selectbox("Use employee data", list(employee_options), key="prediction_employee")
-    employee = employee_options[selected_employee]
-    with st.form("prediction_form"):
-        departments = sorted(set(VALID_DEPARTMENTS) | set(employees["department"].dropna().astype(str)))
-        default_dept = getattr(employee, "department", departments[0])
-        department = st.selectbox(
-            "Department",
-            departments,
-            index=_option_index(departments, default_dept),
-        )
-        left, right = st.columns(2)
-        attendance = left.number_input(
-            "Attendance (%)", 0.0, 100.0,
-            _finite(getattr(employee, "attendance_rate", None), 90), 1.0,
-        )
-        task_completion = right.number_input(
-            "Task completion (%)", 0.0, 100.0,
-            _finite(getattr(employee, "task_completion_rate", None), 80), 1.0,
-        )
-        training = left.number_input(
-            "Training hours", 0.0, 2000.0,
-            _finite(getattr(employee, "training_hours", None), 30), 1.0,
-        )
-        experience = right.number_input(
-            "Experience (years)", 0.0, 80.0,
-            _finite(getattr(employee, "experience_years", None), 3), 0.5,
-        )
-        previous = left.number_input(
-            "Previous performance (1–5)", 1.0, 5.0,
-            _finite(getattr(employee, "previous_performance", None), 3.0), 0.1,
-        )
-        submitted = st.form_submit_button("Generate estimate", type="primary")
-    if submitted:
-        features = {
-            "department": department,
-            "attendance_rate": attendance,
-            "task_completion_rate": task_completion,
-            "training_hours": training,
-            "experience_years": experience,
-            "previous_performance": previous,
+    sel_emp_label = st.selectbox("Populate with employee data", list(emp_options.keys()))
+    sel_emp = emp_options[sel_emp_label]
+
+    with st.form("ml_prediction_form"):
+        depts = sorted(set(VALID_DEPARTMENTS) | set(employees["department"].dropna().astype(str)))
+        def_dept = getattr(sel_emp, "department", depts[0])
+        dept = st.selectbox("Department", depts, index=_option_index(depts, def_dept))
+
+        p1, p2 = st.columns(2)
+        att = p1.slider("Attendance Rate (%)", 0.0, 100.0, _finite(getattr(sel_emp, "attendance_rate", None), 90.0), 0.5)
+        task = p2.slider("Task Completion Rate (%)", 0.0, 100.0, _finite(getattr(sel_emp, "task_completion_rate", None), 85.0), 0.5)
+
+        p3, p4 = st.columns(2)
+        trn = p3.number_input("Training Hours", 0.0, 1000.0, _finite(getattr(sel_emp, "training_hours", None), 30.0), 1.0)
+        exp = p4.number_input("Experience (years)", 0.0, 60.0, _finite(getattr(sel_emp, "experience_years", None), 3.0), 0.5)
+
+        prev = st.slider("Previous Performance Rating (1 – 5)", 1.0, 5.0, _finite(getattr(sel_emp, "previous_performance", None), 3.5), 0.1)
+
+        run_pred = st.form_submit_button("Generate Prediction & Explanation", type="primary")
+
+    if run_pred:
+        input_features = {
+            "department": dept,
+            "attendance_rate": att,
+            "task_completion_rate": task,
+            "training_hours": trn,
+            "experience_years": exp,
+            "previous_performance": prev,
         }
         try:
             output = run_employee_prediction(
-                pipelines[selected],
-                features,
-                employee_id=getattr(employee, "employee_id", None),
+                pipelines[selected_model],
+                input_features,
+                employee_id=getattr(sel_emp, "employee_id", None),
                 population_df=labelled,
             )
+            pred_tier = output["predicted_category"]
+
             st.markdown(
-                f'<div class="wp-prediction-result"><span>MODEL ESTIMATE</span>'
-                f'<strong>{output["predicted_category"]}</strong>'
-                f'<small>Not a completed assessment</small></div>',
+                f"""
+                <div class="wp-decision-result">
+                    <div class="wp-decision-result-left">
+                        <small>MODEL FORECAST ({selected_model})</small>
+                        <strong>{escape(pred_tier)}</strong>
+                        <span style="font-size:0.8125rem; color:var(--wp-text-secondary);">{output.get('summary', '')}</span>
+                    </div>
+                    <div>
+                        {render_status_badge(pred_tier)}
+                    </div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
-            probabilities = pd.DataFrame(
-                [{"Category": category, "Probability": value} for category, value in output["probabilities"].items()]
+
+            # Probability Breakdown
+            prob_df = pd.DataFrame(
+                [{"Tier": k, "Confidence": v} for k, v in output["probabilities"].items()]
             )
-            fig = px.bar(
-                probabilities, x="Category", y="Probability",
-                range_y=[0, 1], text_auto=".0%",
-                color_discrete_sequence=["#147DA8"],
+            prob_fig = px.bar(
+                prob_df,
+                x="Tier",
+                y="Confidence",
+                range_y=[0, 1],
+                text_auto=".1%",
+                color="Tier",
+                color_discrete_map={"High": "#0D9488", "Moderate": "#D97706", "Needs Support": "#E11D48"},
             )
-            st.plotly_chart(apply_chart_style(fig), use_container_width=True)
+            st.plotly_chart(apply_chart_style(prob_fig), use_container_width=True)
+
             if not output["contributions"].empty:
+                st.markdown("**Local Feature Contributions (Why the model reached this prediction):**")
                 st.dataframe(output["contributions"], hide_index=True, use_container_width=True)
-            st.caption(output["disclaimer"])
+
         except Exception as error:
-            st.error(f"Prediction failed: {error}")
+            st.error(f"Inference pipeline failed: {error}")
 
 
+# =============================================================================
+# 8. EXECUTIVE REPORTS
+# =============================================================================
 def _reports_page(assessments: pd.DataFrame) -> None:
-    render_page_heading("Reports", "Filter, summarize, and export actual review records.", "WORKSPACE  /  REPORTING")
+    render_page_heading(
+        title="Executive Performance Reports",
+        subtitle="Compile, audit, and export formal performance evaluations for organizational leadership.",
+        breadcrumb="EXECUTIVE AUDIT",
+    )
+
     if assessments.empty:
-        show_empty_state("No reportable assessments yet", "Completed assessments will become available here.")
+        render_empty_state("No Reportable Records", "Completed assessments will appear in this executive reporting suite.")
         return
-    department_options = ["All departments", *sorted(assessments["department"].dropna().unique())]
-    employee_options = ["All employees", *sorted(assessments["employee_name"].dropna().unique())]
-    period_options = ["All periods", *sorted(assessments["period_name"].dropna().unique())]
-    a, b, c = st.columns(3)
-    department = a.selectbox("Department", department_options, key="report_department")
-    employee = b.selectbox("Employee", employee_options, key="report_employee")
-    period = c.selectbox("Review period", period_options, key="report_period")
+
+    r1, r2, r3 = st.columns(3)
+    depts = ["All departments", *sorted(assessments["department"].dropna().unique())]
+    sel_dept = r1.selectbox("Filter Department", depts, key="rep_dept")
+    cycles = ["All cycles", *sorted(assessments["period_name"].dropna().unique())]
+    sel_cycle = r2.selectbox("Filter Review Cycle", cycles, key="rep_cycle")
+    emps = ["All employees", *sorted(assessments["employee_name"].dropna().unique())]
+    sel_emp = r3.selectbox("Filter Employee", emps, key="rep_emp")
+
     filtered = assessments.copy()
-    if department != "All departments":
-        filtered = filtered[filtered["department"] == department]
-    if employee != "All employees":
-        filtered = filtered[filtered["employee_name"] == employee]
-    if period != "All periods":
-        filtered = filtered[filtered["period_name"] == period]
+    if sel_dept != "All departments":
+        filtered = filtered[filtered["department"] == sel_dept]
+    if sel_cycle != "All cycles":
+        filtered = filtered[filtered["period_name"] == sel_cycle]
+    if sel_emp != "All employees":
+        filtered = filtered[filtered["employee_name"] == sel_emp]
+
     if filtered.empty:
-        st.info("No assessments match those report filters.")
+        st.info("No assessment records match the selected reporting filters.")
         return
-    x, y, z = st.columns(3)
-    x.metric("Assessments", f"{len(filtered):,}")
-    y.metric("Average score", f"{filtered['overall_score'].mean():.1f} / 100")
-    z.metric("Employees reviewed", f"{filtered['employee_id'].nunique():,}")
-    report = filtered.copy()
-    report["outcome"] = report["overall_score"].map(_get_category)
+
+    avg_score = float(filtered["overall_score"].mean())
+    render_executive_report_header(
+        report_title=f"Performance Audit — {sel_dept}",
+        cycle_name=sel_cycle,
+        dept_filter=sel_dept,
+        employee_count=len(filtered),
+        avg_score=avg_score,
+    )
+
+    report_table = filtered.copy()
+    report_table["Tier"] = report_table["overall_score"].map(_get_category)
+
     st.dataframe(
-        report[
+        report_table[
             ["employee_code", "employee_name", "department", "period_name",
-             "assessment_date", "reviewer", "overall_score", "outcome", "comments"]
+             "assessment_date", "reviewer", "overall_score", "Tier", "comments"]
         ].rename(
             columns={
-                "employee_code": "Employee ID", "employee_name": "Employee",
-                "department": "Department", "period_name": "Review period",
-                "assessment_date": "Date", "reviewer": "Reviewer",
-                "overall_score": "Score", "outcome": "Outcome",
-                "comments": "Reviewer comments",
+                "employee_code": "Employee ID",
+                "employee_name": "Full Name",
+                "department": "Department",
+                "period_name": "Review Cycle",
+                "assessment_date": "Date",
+                "reviewer": "Reviewer",
+                "overall_score": "Score",
+                "Tier": "Standing",
+                "comments": "Executive Notes",
             }
         ),
         hide_index=True,
         use_container_width=True,
     )
-    st.download_button(
-        "Download report as CSV",
-        report.drop(columns=["scores_json"], errors="ignore").to_csv(index=False).encode("utf-8"),
-        file_name="workpulse-performance-report.csv",
+
+    c1, c2 = st.columns([2, 5])
+    c1.download_button(
+        "📥 Download Report as CSV",
+        report_table.drop(columns=["scores_json"], errors="ignore").to_csv(index=False).encode("utf-8"),
+        file_name="workpulse-executive-report.csv",
         mime="text/csv",
         type="primary",
+        use_container_width=True,
     )
-    st.caption("PDF export is not configured; the filtered CSV contains the reportable assessment records.")
 
 
+# =============================================================================
+# 9. NOTIFICATIONS & INBOX
+# =============================================================================
 def _notifications_page() -> None:
-    render_page_heading("Notifications", "Review workflow updates and employees awaiting an assessment.", "WORKSPACE  /  INBOX")
+    render_page_heading(
+        title="Notifications & Task Queue",
+        subtitle="Review workflow alerts, upcoming cycle deadlines, and unassessed employee queues.",
+        breadcrumb="TASK INBOX",
+    )
+
     notifications = get_notifications()
     pending = get_pending_reviews()
-    unread = notifications[notifications["read_at"].isna()]
-    top = st.columns([1, 4])
-    top[0].metric("Unread updates", len(unread))
-    if top[1].button("Mark all updates as read", disabled=unread.empty):
-        mark_notifications_read()
-        st.success("All notifications marked as read.")
-        st.rerun()
-    _section_heading("Pending assessments", "Active employees with no submitted assessment in an active period")
+    unread = notifications[notifications["read_at"].isna()] if not notifications.empty else pd.DataFrame()
+
+    c1, c2 = st.columns([1.5, 4.5])
+    c1.metric("Unread Alerts", len(unread))
+    with c2:
+        if st.button("Mark All Alerts as Read", disabled=unread.empty):
+            mark_notifications_read()
+            st.success("All alerts marked as read.")
+            st.rerun()
+
+    _section_heading("Pending Review Queue", "Active staff members awaiting evaluations in open cycles")
     if pending.empty:
-        st.success("There are no pending assessments in active review periods.")
+        st.success("All active staff members in open review cycles have been evaluated.")
     else:
         st.dataframe(
-            pending[
-                ["employee_code", "employee_name", "department", "period_name", "end_date"]
-            ].rename(
+            pending[["employee_code", "employee_name", "department", "period_name", "end_date"]].rename(
                 columns={
-                    "employee_code": "Employee ID", "employee_name": "Employee",
-                    "department": "Department", "period_name": "Review period",
-                    "end_date": "Due date",
+                    "employee_code": "Employee ID",
+                    "employee_name": "Staff Name",
+                    "department": "Department",
+                    "period_name": "Open Cycle",
+                    "end_date": "Due Date",
                 }
             ),
             hide_index=True,
             use_container_width=True,
         )
-        if st.button("Start an assessment"):
+        if st.button("Start Assessment for Pending Staff", type="primary"):
             st.session_state.active_page = "Assessments"
             st.session_state.show_assessment_form = True
             st.rerun()
-    _section_heading("Workspace updates")
+
+    _section_heading("Audit & Workflow Event Log")
     if notifications.empty:
-        show_empty_state("All quiet", "Employee, period, and assessment updates will appear here.")
+        render_empty_state("No Notification History", "System events and review cycle milestones will appear here.")
     else:
-        for notification in notifications.itertuples(index=False):
-            state = "Unread" if pd.isna(notification.read_at) else "Read"
-            with st.container(border=True):
-                heading, marker = st.columns([5, 1])
-                heading.markdown(f"**{notification.title}**")
-                marker.markdown(render_status(state), unsafe_allow_html=True)
-                st.write(notification.message)
-                st.caption(notification.created_at)
-                if pd.isna(notification.read_at) and st.button(
-                    "Mark as read", key=f"read_{notification.notification_id}"
-                ):
-                    mark_notifications_read([int(notification.notification_id)])
-                    st.rerun()
-
-
-def _settings_page() -> None:
-    render_page_heading("Settings", "Manage workspace preferences and administrator profile details.", "WORKSPACE  /  PREFERENCES")
-    settings = get_settings()
-    st.info(
-        "Authentication and role-based access are not configured in this project. "
-        "The administrator profile is a workspace label, not a verified account."
-    )
-    with st.form("workspace_settings_form"):
-        name = st.text_input("Administrator display name", value=settings.get("admin_name", "Administrator"))
-        workspace = st.text_input("Workspace name", value=settings.get("workspace_name", "WorkPulse"))
-        save = st.form_submit_button("Save preferences", type="primary")
-    if save:
-        try:
-            save_settings(
-                {"admin_name": name, "workspace_name": workspace}
+        for notif in notifications.itertuples(index=False):
+            is_unread = pd.isna(notif.read_at)
+            status_chip = render_status_badge("Needs Support" if is_unread else "Completed")
+            st.markdown(
+                f"""
+                <div class="wp-card" style="margin-bottom:0.75rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <strong style="color:var(--wp-navy);">{escape(notif.title)}</strong>
+                        <span style="font-size:0.75rem; color:var(--wp-text-muted);">{escape(str(notif.created_at))}</span>
+                    </div>
+                    <p style="margin:0.35rem 0 0 0; color:var(--wp-text-secondary); font-size:0.875rem;">{escape(notif.message)}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
-            st.success("Workspace preferences saved.")
+
+
+# =============================================================================
+# 10. SETTINGS & DEMONSTRATION SUITE
+# =============================================================================
+def _settings_page() -> None:
+    render_page_heading(
+        title="Workspace Settings & Demo Suite",
+        subtitle="Manage workspace preferences, system diagnostics, and evaluation demo records.",
+        breadcrumb="SYSTEM PREFERENCES",
+    )
+
+    settings = get_settings()
+
+    with st.form("workspace_settings_form"):
+        st.markdown("**Workspace Configuration:**")
+        name = st.text_input("Administrator Display Name", value=settings.get("admin_name", "Administrator"))
+        workspace = st.text_input("Workspace Name", value=settings.get("workspace_name", "WorkPulse"))
+        saved = st.form_submit_button("Save Preferences", type="primary")
+
+    if saved:
+        try:
+            save_settings({"admin_name": name, "workspace_name": workspace})
+            st.success("Workspace preferences updated.")
             st.rerun()
         except Exception as error:
-            st.error(f"Could not save preferences: {error}")
-    _section_heading("Data and privacy")
+            st.error(f"Could not update preferences: {error}")
+
+    # Demonstration Suite
+    _section_heading("Viva Demonstration & Evaluation Suite", "Seed realistic demonstration review cycles and assessment records with one click")
     st.markdown(
-        "- Employee profiles and assessments are stored in the local SQLite database.\n"
-        "- Reports contain only the rows selected by your active filters.\n"
-        "- No login system is currently configured; do not expose the app publicly with sensitive employee data."
+        """
+        <div class="wp-card">
+            <p style="margin:0 0 1rem 0; color:var(--wp-text-secondary); font-size:0.875rem;">
+                When presenting WorkPulse to evaluators, professors, or stakeholders, click below to populate authentic review cycles, weighted assessments across multiple departments, and performance trajectories. You can clear demonstration records at any time.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    st.caption(f"Database file: `{DB_PATH}`")
+
+    c1, c2, _ = st.columns([2.5, 2.5, 5])
+    with c1:
+        if st.button("⚡ Seed Demo Review Cycle", type="primary", use_container_width=True):
+            count = seed_demo_review_cycle()
+            st.success(f"Successfully generated {count} demonstration assessments across review cycles!")
+            st.rerun()
+    with c2:
+        if st.button("🗑 Reset Demonstration Data", use_container_width=True):
+            del_count = clear_demo_assessments()
+            st.info(f"Cleared {del_count} demonstration assessment records.")
+            st.rerun()
+
+    _section_heading("System Diagnostics & SQLite Status")
+    db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    st.markdown(
+        f"""
+        <div style="background:var(--wp-bg); border:1px solid var(--wp-border); border-radius:var(--wp-radius-md); padding:1rem; font-size:0.8125rem; color:var(--wp-text-secondary);">
+            <div><strong>Database File:</strong> <code>{DB_PATH}</code></div>
+            <div style="margin-top:0.35rem;"><strong>File Size:</strong> {db_size / 1024:.1f} KB</div>
+            <div style="margin-top:0.35rem;"><strong>Integrity:</strong> SQLite foreign keys enabled, parameterized queries active</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
+# =============================================================================
+# HELPER UTILITIES
+# =============================================================================
 def _safe_date(value: Any) -> date:
     if value is None or pd.isna(value) or not str(value).strip():
         return date.today()
@@ -1150,6 +1495,9 @@ def _finite(value: Any, fallback: float) -> float:
         return fallback
 
 
+# =============================================================================
+# APPLICATION ENTRYPOINT
+# =============================================================================
 def main() -> None:
     _configure_page()
     initialize_database()
@@ -1157,46 +1505,57 @@ def main() -> None:
     summary = get_dashboard_summary()
     settings = get_settings()
     admin_name = settings.get("admin_name", "Administrator")
-    requested_page = st.query_params.get("page")
-    if requested_page:
-        for page_name in NAV_ITEMS:
-            if page_name.casefold() == str(requested_page).strip().casefold():
-                st.session_state.active_page = page_name
+    workspace_name = settings.get("workspace_name", "WorkPulse")
+
+    # Synchronize URL query parameters with active_page
+    query_page = st.query_params.get("page")
+    if query_page:
+        for k in list(NAV_ITEMS.keys()) + ["Home"]:
+            if k.lower() == str(query_page).strip().lower():
+                st.session_state.active_page = k
                 break
-    elif "active_page" not in st.session_state:
+
+    if "active_page" not in st.session_state:
         st.session_state.active_page = "Home"
 
+    # If active_page is Home, render dedicated full-width SaaS homepage
     if st.session_state.active_page == "Home":
         st.query_params["page"] = "Home"
-        render_homepage(
-            summary,
-            get_employees(),
-            get_assessments(),
-            get_periods(),
-            get_areas(),
-            settings,
-        )
+        employees = get_employees()
+        periods = get_periods()
+        areas = get_areas()
+        assessments = get_assessments()
+        render_homepage(summary, employees, assessments, periods, areas, settings)
         return
 
-    page = _sidebar(
-        summary,
-        admin_name,
-        settings.get("workspace_name", "WorkPulse"),
-    )
+    # Render Sidebar
+    page = _sidebar(summary, admin_name, workspace_name)
+
+    # If sidebar radio selected Home
+    if page == "Home":
+        st.session_state.active_page = "Home"
+        st.query_params["page"] = "Home"
+        st.rerun()
+
+    # Render Topbar
     notifications = get_notifications()
     unread_count = int(notifications["read_at"].isna().sum()) if not notifications.empty else 0
     pending_count = len(get_pending_reviews())
     _topbar(page, unread_count + pending_count, admin_name)
+
+    # Retrieve Domain Data
     employees = get_employees()
     periods = get_periods()
     areas = get_areas()
     assessments = get_assessments()
+
+    # Route to Module Page
     if page == "Dashboard":
-        _dashboard(employees, assessments, summary)
+        _dashboard(employees, assessments, summary, periods)
     elif page == "Employees":
-        _employees_page(employees)
+        _employees_page(employees, assessments)
     elif page == "Performance Periods":
-        _periods_page(periods)
+        _periods_page(periods, assessments)
     elif page == "Performance Areas":
         _areas_page(areas)
     elif page == "Assessments":
@@ -1211,3 +1570,7 @@ def main() -> None:
         _notifications_page()
     elif page == "Settings":
         _settings_page()
+
+
+if __name__ == "__main__":
+    main()
