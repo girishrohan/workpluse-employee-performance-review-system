@@ -46,6 +46,7 @@ from ui_components import (
     render_status,
     show_empty_state,
 )
+from homepage_view import render_homepage
 from utils.validation import VALID_DEPARTMENTS
 
 NAV_ITEMS = {
@@ -103,6 +104,12 @@ def _train_models(labelled_data: pd.DataFrame) -> tuple[dict, dict]:
     return results, pipelines
 
 
+def _sync_page_query() -> None:
+    selected_page = st.session_state.get("active_page")
+    if selected_page in NAV_ITEMS:
+        st.query_params["page"] = selected_page
+
+
 def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> str:
     admin_name = escape(admin_name)
     workspace_name = escape(workspace_name)
@@ -129,6 +136,7 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
         format_func=lambda page: f"{NAV_ITEMS[page]}    {page}",
         label_visibility="collapsed",
         key="active_page",
+        on_change=_sync_page_query,
     )
     st.sidebar.markdown(
         f"""
@@ -1149,6 +1157,27 @@ def main() -> None:
     summary = get_dashboard_summary()
     settings = get_settings()
     admin_name = settings.get("admin_name", "Administrator")
+    requested_page = st.query_params.get("page")
+    if requested_page:
+        for page_name in NAV_ITEMS:
+            if page_name.casefold() == str(requested_page).strip().casefold():
+                st.session_state.active_page = page_name
+                break
+    elif "active_page" not in st.session_state:
+        st.session_state.active_page = "Home"
+
+    if st.session_state.active_page == "Home":
+        st.query_params["page"] = "Home"
+        render_homepage(
+            summary,
+            get_employees(),
+            get_assessments(),
+            get_periods(),
+            get_areas(),
+            settings,
+        )
+        return
+
     page = _sidebar(
         summary,
         admin_name,
