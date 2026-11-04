@@ -3,6 +3,7 @@ WorkPulse — Employee Performance Review System
 Enterprise SaaS UI/UX Presentation Engine built with Streamlit & Plotly.
 """
 
+import json
 import os
 from datetime import date, timedelta
 from html import escape
@@ -60,6 +61,8 @@ from ui_components import (
 )
 from homepage_view import render_homepage
 from utils.validation import VALID_DEPARTMENTS
+from auth.auth_service import init_auth_tables, ensure_default_admin, log_audit
+from auth_views import render_login_page, render_change_password_page, render_forgot_password_page
 
 # Navigation Registry
 NAV_ITEMS = {
@@ -123,7 +126,10 @@ def _train_models(labelled_data: pd.DataFrame) -> tuple[dict, dict]:
 def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> str:
     admin_name = escape(admin_name)
     workspace_name = escape(workspace_name)
-    
+    user = st.session_state.get("user", {})
+    role = user.get("role", "admin").lower()
+    full_name = user.get("full_name", admin_name)
+
     st.sidebar.markdown(
         f"""
         <div class="wp-brand">
@@ -141,20 +147,49 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
 
     st.sidebar.markdown('<div class="wp-sidebar-section">NAVIGATION</div>', unsafe_allow_html=True)
 
-    if "active_page" not in st.session_state:
+    # Role-based navigation access control
+    ADMIN_PAGES = list(NAV_ITEMS.keys())
+    HR_PAGES = [
+        "Home", "Dashboard", "Employees", "Performance Periods",
+        "Performance Areas", "Assessments", "Analytics", "Predictions",
+        "Reports", "Notifications"
+    ]
+    EMPLOYEE_PAGES = ["Home", "Dashboard", "Employees", "Notifications"]
+
+    if role == "employee":
+        allowed_pages = EMPLOYEE_PAGES
+    elif role == "hr":
+        allowed_pages = HR_PAGES
+    else:
+        allowed_pages = ADMIN_PAGES
+
+    visible_nav = {k: v for k, v in NAV_ITEMS.items() if k in allowed_pages}
+
+    if "active_page" not in st.session_state or st.session_state.active_page not in allowed_pages:
         st.session_state.active_page = "Dashboard"
 
     selected = st.sidebar.radio(
         "Main navigation",
-        options=list(NAV_ITEMS.keys()),
-        format_func=lambda page: NAV_ITEMS[page],
+        options=list(visible_nav.keys()),
+        format_func=lambda page: visible_nav[page],
         label_visibility="collapsed",
         key="active_page",
     )
 
+    role_colors = {"admin": "#168C83", "hr": "#D97706", "employee": "#102A43"}
+    role_color = role_colors.get(role, "#64748B")
+
     st.sidebar.markdown(
         f"""
         <div class="wp-sidebar-footer">
+            <div class="wp-sidebar-section" style="margin-top:0;">SIGNED IN AS</div>
+            <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:8px; padding:0.65rem 0.75rem; margin-bottom:0.75rem;">
+                <div style="font-size:0.8125rem; font-weight:700; color:var(--wp-navy);">{escape(full_name)}</div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.25rem;">
+                    <span style="font-size:0.7rem; color:#64748B;">{escape(user.get('email', ''))}</span>
+                    <span style="font-size:0.6rem; font-weight:700; color:{role_color}; text-transform:uppercase; letter-spacing:0.06em; background:{role_color}18; padding:0.12rem 0.4rem; border-radius:4px;">{escape(role.upper())}</span>
+                </div>
+            </div>
             <div class="wp-sidebar-section" style="margin-top:0;">WORKSPACE SYSTEM</div>
             <div class="wp-db-status">
                 <span class="wp-status-dot"></span>
@@ -170,13 +205,28 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
         """,
         unsafe_allow_html=True,
     )
+
+    # Sign Out Button
+    if st.sidebar.button("🚪  Sign Out", use_container_width=True, key="sidebar_logout_btn"):
+        if "user" in st.session_state:
+            u_id = st.session_state.user.get("user_id")
+            log_audit(u_id, "LOGOUT", "user", u_id, f"User {st.session_state.user.get('email')} signed out")
+            del st.session_state.user
+        st.session_state.auth_page = "login"
+        st.query_params.clear()
+        st.rerun()
+
     return selected
 
 
 def _topbar(page: str, unread_count: int, admin_name: str) -> None:
-    profile_name = admin_name.strip() or "Administrator"
+    user = st.session_state.get("user", {})
+    role = user.get("role", "admin").lower()
+    display_name = user.get("full_name", admin_name).strip() or "User"
+    first_name = display_name.split()[0]
+
     title_col, home_col, notification_col, profile_col, action_col = st.columns(
-        [4.2, 1.3, 1.0, 1.2, 2.3], vertical_alignment="center"
+        [3.8, 1.4, 1.1, 1.5, 2.2], vertical_alignment="center"
     )
     with title_col:
         page_label = NAV_ITEMS.get(page, page)
@@ -200,9 +250,20 @@ def _topbar(page: str, unread_count: int, admin_name: str) -> None:
             st.session_state.active_page = "Notifications"
             st.rerun()
     with profile_col:
-        if st.button(f"⚙ {profile_name.split()[0]}", help="Workspace settings", use_container_width=True, key="top_profile"):
-            st.session_state.active_page = "Settings"
-            st.rerun()
+        role_tag = f"({role.upper()})"
+        if role == "admin":
+            if st.button(f"⚙ {first_name} {role_tag}", help="Workspace settings", use_container_width=True, key="top_profile"):
+                st.session_state.active_page = "Settings"
+                st.rerun()
+        else:
+            st.markdown(
+                f"""
+                <div style="text-align:center; padding:0.4rem 0.5rem; background:#FFFFFF; border:1px solid #E2E8F0; border-radius:6px; font-size:0.75rem; font-weight:600; color:var(--wp-navy);">
+                    👤 {escape(first_name)} <span style="font-size:0.65rem; color:#168C83;">{escape(role_tag)}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     action_map = {
         "Dashboard": ("＋  New Assessment", "Assessments", "show_assessment_form"),
@@ -216,7 +277,12 @@ def _topbar(page: str, unread_count: int, admin_name: str) -> None:
         "Notifications": ("✓  Review Queue", "Assessments", "show_assessment_form"),
         "Settings": ("🔔  View Alerts", "Notifications", None),
     }
-    btn_label, dest_page, flag = action_map.get(page, ("＋  New Assessment", "Assessments", "show_assessment_form"))
+
+    if role == "employee":
+        btn_label, dest_page, flag = ("⌂  My Overview", "Dashboard", None)
+    else:
+        btn_label, dest_page, flag = action_map.get(page, ("＋  New Assessment", "Assessments", "show_assessment_form"))
+
     with action_col:
         if st.button(btn_label, type="primary", use_container_width=True, key=f"top_btn_{page}"):
             st.session_state.active_page = dest_page
@@ -238,6 +304,193 @@ def _section_heading(title: str, caption: str | None = None) -> None:
     )
 
 
+def _get_current_employee_record(user: dict, employees: pd.DataFrame) -> pd.Series | None:
+    if employees.empty:
+        return None
+    emp_id = user.get("employee_id")
+    if emp_id:
+        match = employees[employees["employee_id"] == emp_id]
+        if not match.empty:
+            return match.iloc[0]
+    full_name = user.get("full_name", "").strip().lower()
+    if full_name:
+        match = employees[employees["employee_name"].str.lower() == full_name]
+        if not match.empty:
+            return match.iloc[0]
+    active = employees[employees["status"] == "Active"]
+    return active.iloc[0] if not active.empty else employees.iloc[0]
+
+
+def _employee_dashboard(
+    employees: pd.DataFrame,
+    assessments: pd.DataFrame,
+    periods: pd.DataFrame,
+    user: dict,
+) -> None:
+    emp = _get_current_employee_record(user, employees)
+    if emp is None:
+        render_empty_state("No Employee Profile Linked", "No employee profile is currently associated with your account.")
+        return
+
+    emp_id = int(emp["employee_id"])
+    emp_name = str(emp["employee_name"])
+    emp_code = str(emp["employee_code"])
+    emp_dept = str(emp.get("department", "General"))
+    emp_desig = str(emp.get("designation") or "Staff Member")
+
+    emp_assessments = (
+        assessments[assessments["employee_id"] == emp_id].sort_values("assessment_date", ascending=False)
+        if not assessments.empty
+        else pd.DataFrame()
+    )
+
+    active_period = periods[periods["status"] == "Active"] if not periods.empty else pd.DataFrame()
+    if not active_period.empty:
+        curr = active_period.iloc[0]
+        has_reviewed = not emp_assessments.empty and any(emp_assessments["period_id"] == curr["period_id"])
+        render_cycle_banner(
+            cycle_name=curr["name"],
+            status="Active",
+            due_date=str(curr["end_date"]),
+            progress_pct=100.0 if has_reviewed else 0.0,
+            total_reviews=1 if has_reviewed else 0,
+            pending_reviews=0 if has_reviewed else 1,
+        )
+
+    st.markdown(
+        f"""
+        <div style="background:#FFFFFF; border:1px solid var(--wp-border); border-left:4px solid var(--wp-teal); border-radius:var(--wp-radius-md); padding:1.25rem 1.5rem; margin-bottom:1.5rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <span style="font-size:0.75rem; font-weight:700; color:var(--wp-teal); letter-spacing:0.06em; text-transform:uppercase;">PERSONAL PERFORMANCE PORTAL</span>
+                    <h2 style="font-size:1.5rem; font-weight:700; color:var(--wp-navy); margin:0.25rem 0 0.25rem 0;">Welcome, {escape(emp_name)}</h2>
+                    <span style="font-size:0.875rem; color:var(--wp-text-secondary);">{escape(emp_code)} · {escape(emp_desig)} · {escape(emp_dept)}</span>
+                </div>
+                <div>
+                    {render_status_badge(str(emp.get('status', 'Active')))}
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    latest_score = float(emp_assessments.iloc[0]["overall_score"]) if not emp_assessments.empty else None
+    latest_score_disp = f"{latest_score:.1f} / 100" if latest_score is not None else "— / 100"
+    latest_cat = _get_category(latest_score) if latest_score is not None else "Pending"
+
+    att_rate = float(emp.get("attendance_rate") or 90.0)
+    task_rate = float(emp.get("task_completion_rate") or 85.0)
+    train_hrs = float(emp.get("training_hours") or 24.0)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        render_metric_card(
+            label="Latest Review Score",
+            value=latest_score_disp,
+            detail=f"Standing: {latest_cat}" if latest_score else "Awaiting review",
+            icon="target",
+            tone="navy",
+            trend=None,
+        )
+    with c2:
+        render_metric_card(
+            label="Attendance Rate",
+            value=f"{att_rate:.1f}%",
+            detail="Tracked work attendance",
+            icon="calendar",
+            tone="teal",
+        )
+    with c3:
+        render_metric_card(
+            label="Task Completion",
+            value=f"{task_rate:.1f}%",
+            detail="Deliverables completed on-time",
+            icon="assessments",
+            tone="green",
+        )
+    with c4:
+        render_metric_card(
+            label="Training Completed",
+            value=f"{train_hrs:.0f} hrs",
+            detail="Professional development logged",
+            icon="sparkles",
+            tone="amber",
+        )
+
+    st.write("")
+
+    _section_heading("Your Profile Dossier", "Holistic indicators and professional milestones")
+    render_employee_profile_card(emp.to_dict())
+
+    left, right = st.columns(2, gap="large")
+    with left:
+        _section_heading("Competency Breakdown", "Scores by performance indicator from latest review")
+        if not emp_assessments.empty and "scores_json" in emp_assessments.columns:
+            try:
+                scores_map = json.loads(str(emp_assessments.iloc[0]["scores_json"]))
+                comp_df = pd.DataFrame(
+                    [{"Indicator": k, "Score": float(v)} for k, v in scores_map.items()]
+                )
+                fig = px.bar(
+                    comp_df,
+                    x="Score",
+                    y="Indicator",
+                    orientation="h",
+                    range_x=[0, 100],
+                    color_discrete_sequence=["#168C83"],
+                    text_auto=".1f",
+                )
+                st.plotly_chart(apply_chart_style(fig), use_container_width=True)
+            except Exception:
+                render_empty_state("No Breakdown Recorded", "Detailed competency scoring will appear after your evaluation.")
+        else:
+            render_empty_state("No Competency Breakdown", "Evaluations for the current cycle have not yet been submitted.")
+
+    with right:
+        _section_heading("Review History Trajectory", "Historical review scores across performance cycles")
+        if not emp_assessments.empty and len(emp_assessments) > 1:
+            traj_df = emp_assessments.sort_values("assessment_date").copy()
+            fig = px.line(
+                traj_df,
+                x="assessment_date",
+                y="overall_score",
+                markers=True,
+                labels={"assessment_date": "Date", "overall_score": "Score"},
+                color_discrete_sequence=["#102A43"],
+            )
+            fig.update_yaxes(range=[40, 100])
+            st.plotly_chart(apply_chart_style(fig), use_container_width=True)
+        elif not emp_assessments.empty:
+            single_score = float(emp_assessments.iloc[0]["overall_score"])
+            st.info(f"You have 1 recorded evaluation with score **{single_score:.1f} / 100** ({_get_category(single_score)}). Historical trajectory graphs will populate across multiple review cycles.")
+        else:
+            render_empty_state("No Review Trajectory", "Previous cycle data will appear here.")
+
+    _section_heading("Evaluation History & Feedback", "Timestamped managerial reviews and feedback notes")
+    if emp_assessments.empty:
+        render_empty_state("No Reviews Recorded", "Once your manager submits an assessment, the detailed feedback will appear here.")
+    else:
+        table = emp_assessments.copy()
+        table["Outcome"] = table["overall_score"].map(_get_category)
+        st.dataframe(
+            table[
+                ["period_name", "assessment_date", "reviewer", "overall_score", "Outcome", "comments"]
+            ].rename(
+                columns={
+                    "period_name": "Review Cycle",
+                    "assessment_date": "Date",
+                    "reviewer": "Reviewer",
+                    "overall_score": "Score",
+                    "Outcome": "Tier",
+                    "comments": "Manager Feedback & Guidance",
+                }
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+
 # =============================================================================
 # 1. DASHBOARD PAGE
 # =============================================================================
@@ -247,6 +500,13 @@ def _dashboard(
     summary: dict[str, int],
     periods: pd.DataFrame,
 ) -> None:
+    user = st.session_state.get("user", {})
+    role = user.get("role", "admin").lower()
+
+    if role == "employee":
+        _employee_dashboard(employees, assessments, periods, user)
+        return
+
     # 1. Active Period Progress Banner
     active_period = periods[periods["status"] == "Active"] if not periods.empty else pd.DataFrame()
     if not active_period.empty:
@@ -301,7 +561,7 @@ def _dashboard(
             detail="Overall review benchmark" if avg_score else "Awaiting reviews",
             icon="target",
             tone="navy",
-            trend="+2.8% vs Q2" if avg_score else None,
+            trend=None,
         )
     with col2:
         render_metric_card(
@@ -1501,19 +1761,32 @@ def _finite(value: Any, fallback: float) -> float:
 def main() -> None:
     _configure_page()
     initialize_database()
+    init_auth_tables()
+    ensure_default_admin()
     mark_bundled_sample_records()
     summary = get_dashboard_summary()
     settings = get_settings()
     admin_name = settings.get("admin_name", "Administrator")
     workspace_name = settings.get("workspace_name", "WorkPulse")
 
-    # Synchronize URL query parameters with active_page
+    # Synchronize URL query parameters with active_page or auth
     query_page = st.query_params.get("page")
     if query_page:
-        for k in list(NAV_ITEMS.keys()) + ["Home"]:
-            if k.lower() == str(query_page).strip().lower():
-                st.session_state.active_page = k
-                break
+        qp_clean = str(query_page).strip().lower()
+        if qp_clean in ("login", "signin", "sign_in", "employee/login", "hr/login", "admin/login"):
+            st.session_state.auth_page = "login"
+            st.session_state.active_page = "login"
+            if "employee" in qp_clean:
+                st.query_params["role"] = "employee"
+            elif "hr" in qp_clean:
+                st.query_params["role"] = "hr"
+            elif "admin" in qp_clean:
+                st.query_params["role"] = "admin"
+        else:
+            for k in list(NAV_ITEMS.keys()) + ["Home"]:
+                if k.lower() == qp_clean:
+                    st.session_state.active_page = k
+                    break
 
     if "active_page" not in st.session_state:
         st.session_state.active_page = "Home"
@@ -1526,6 +1799,20 @@ def main() -> None:
         areas = get_areas()
         assessments = get_assessments()
         render_homepage(summary, employees, assessments, periods, areas, settings)
+        return
+
+    # Authentication Gate for internal workspace
+    if "user" not in st.session_state:
+        auth_page = st.session_state.get("auth_page", "login")
+        if auth_page == "forgot_password":
+            render_forgot_password_page()
+        else:
+            render_login_page()
+        return
+
+    # Enforce password change if required
+    if st.session_state.user.get("must_change_password"):
+        render_change_password_page(st.session_state.user)
         return
 
     # Render Sidebar

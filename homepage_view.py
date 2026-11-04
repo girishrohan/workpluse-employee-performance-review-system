@@ -370,9 +370,9 @@ def render_homepage(
 
             <!-- Right Actions -->
             <div class="wp-hp-nav-actions">
-                <a href="?page=Settings" target="_self" class="wp-hp-nav-signin">Workspace settings</a>
+                <a href="?page=login" target="_self" class="wp-hp-nav-signin">Sign In</a>
                 <a href="?page=Dashboard" target="_self" class="wp-hp-btn wp-hp-btn-nav">
-                    <span>Open Dashboard</span>
+                    <span>Get Started</span>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="9 18 15 12 9 6"/>
                     </svg>
@@ -395,8 +395,8 @@ def render_homepage(
                 <a href="#analytics-showcase" class="wp-hp-mobile-link">Analytics</a>
                 <a href="#about" class="wp-hp-mobile-link">About</a>
                 <div class="wp-hp-mobile-divider"></div>
-                <a href="?page=Settings" target="_self" class="wp-hp-mobile-link">Workspace settings</a>
-                <a href="?page=Dashboard" target="_self" class="wp-hp-btn wp-hp-btn-primary" style="margin-top:0.75rem; text-align:center;">Open Dashboard</a>
+                <a href="?page=login" target="_self" class="wp-hp-mobile-link">Sign In</a>
+                <a href="?page=Dashboard" target="_self" class="wp-hp-btn wp-hp-btn-primary" style="margin-top:0.75rem; text-align:center;">Get Started</a>
             </div>
         </div>
     </nav>

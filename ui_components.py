@@ -355,3 +355,20 @@ def render_executive_report_header(
         """,
         unsafe_allow_html=True,
     )
+
+# -----------------------------------------------------------------------------
+# User Role Badge
+# -----------------------------------------------------------------------------
+def render_role_badge(role: str) -> str:
+    """Returns HTML for a role badge."""
+    role_configs = {
+        "admin": ("ADMIN", "#168C83", "rgba(22,140,131,0.1)"),
+        "hr": ("HR MANAGER", "#D97706", "rgba(217,119,6,0.1)"),
+        "employee": ("EMPLOYEE", "#102A43", "rgba(16,42,67,0.08)"),
+    }
+    label, color, bg = role_configs.get(role.lower(), ("USER", "#64748B", "rgba(100,116,139,0.1)"))
+    return (
+        f'<span style="display:inline-block;font-size:0.6rem;font-weight:700;'
+        f'color:{color};background:{bg};padding:0.15rem 0.5rem;border-radius:4px;'
+        f'letter-spacing:0.08em;text-transform:uppercase;">{escape(label)}</span>'
+    )
