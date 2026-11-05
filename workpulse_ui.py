@@ -61,26 +61,122 @@ from ui_components import (
 )
 from homepage_view import render_homepage
 from utils.validation import VALID_DEPARTMENTS
-from auth.auth_service import init_auth_tables, ensure_default_admin, log_audit
-from auth_views import render_login_page, render_change_password_page, render_forgot_password_page
+from auth.auth_service import (
+    init_auth_tables,
+    ensure_default_admin,
+    log_audit,
+    get_all_users,
+    get_audit_log,
+    update_user,
+    create_user,
+)
+from auth_views import (
+    render_login_page,
+    render_change_password_page,
+    render_forgot_password_page,
+    render_password_reset_page,
+    render_logout_confirmation_page,
+    go_to_home,
+)
 
-# Navigation Registry
+# Navigation Registry - Premium Enterprise SaaS Design
 NAV_ITEMS = {
-    "Home": "🌐  Product Home",
-    "Dashboard": "⌂  Dashboard",
-    "Employees": "♙  Employees",
-    "Performance Periods": "▦  Review Cycles",
-    "Performance Areas": "◈  KPI Framework",
-    "Assessments": "✓  Assessments",
-    "Analytics": "▥  Analytics",
-    "Predictions": "⌁  Predictions (ML)",
-    "Reports": "▤  Reports",
-    "Notifications": "◉  Notifications",
-    "Settings": "⚙  Settings & Demo",
+    "Home": "Product Home",
+    "Dashboard": "Dashboard",
+    "Employees": "Employees",
+    "Performance Periods": "Review Cycles",
+    "Performance Areas": "KPI Framework",
+    "Assessments": "Assessments",
+    "Analytics": "Analytics",
+    "Predictions": "Predictions",
+    "Reports": "Reports",
+    "Notifications": "Notifications",
+    "Settings": "Settings",
+}
+
+# Admin-only navigation items (visible only to Admin role)
+ADMIN_NAV_ITEMS = {
+    "User Management": "Users",
+}
+
+# Navigation Icon Registry - Maps page names to icon keys
+NAV_ICONS = {
+    "Home": "pulse",
+    "Dashboard": "dashboard",
+    "Employees": "employees",
+    "Performance Periods": "calendar",
+    "Performance Areas": "sliders",
+    "Assessments": "check",
+    "Analytics": "analytics",
+    "Predictions": "sparkles",
+    "Reports": "reports",
+    "Notifications": "notifications",
+    "Settings": "settings",
+    "User Management": "users",
 }
 
 STATUS_OPTIONS = ("Active", "On leave", "Inactive")
 PERIOD_STATUS_OPTIONS = ("Draft", "Active", "Completed")
+
+
+# ---------------------------------------------------------------------------
+# Role-based Route Guards
+# ---------------------------------------------------------------------------
+
+def require_role(*roles: str) -> bool:
+    """
+    Check if the current user has one of the required roles.
+    Returns True if authorized, False otherwise.
+    """
+    user = st.session_state.get("user", {})
+    user_role = user.get("role", "").lower()
+    return user_role in [r.lower() for r in roles]
+
+
+def require_admin(func):
+    """Decorator for admin-only pages."""
+    def wrapper(*args, **kwargs):
+        if not require_role("admin"):
+            st.error("Access denied. Admin privileges required.")
+            st.sidebar.button("← Go to Dashboard", key="admin_back")
+            return
+        return func(*args, **kwargs)
+    return wrapper
+
+
+def require_hr_or_admin(func):
+    """Decorator for HR/Admin-only pages."""
+    def wrapper(*args, **kwargs):
+        if not require_role("hr", "admin"):
+            st.error("Access denied. HR or Admin privileges required.")
+            st.sidebar.button("← Go to Dashboard", key="hr_admin_back")
+            return
+        return func(*args, **kwargs)
+    return wrapper
+
+
+def _admin_alert(message: str) -> None:
+    """Display an admin-level alert."""
+    st.warning(f"⚠️ {message}")
+
+
+def _unauthorized_alert() -> None:
+    """Display an access denied message."""
+    st.error("❌ You do not have permission to access this page.")
+    st.info("Please contact an administrator if you believe this is an error.")
+
+
+def _section_heading(label: str, caption: str = "") -> None:
+    """Render a section heading with optional caption."""
+    st.markdown(
+        f"""
+        <div style="margin:1.75rem 0 0.75rem 0;">
+            <h3 style="font-size:1.0625rem; font-weight:700; color:var(--wp-navy); margin:0 0 0.25rem 0;">{escape(label)}</h3>
+            {f'<p style="font-size:0.8125rem; color:var(--wp-text-secondary); margin:0;">{escape(caption)}</p>' if caption else ''}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _configure_page() -> None:
@@ -148,7 +244,6 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
     st.sidebar.markdown('<div class="wp-sidebar-section">NAVIGATION</div>', unsafe_allow_html=True)
 
     # Role-based navigation access control
-    ADMIN_PAGES = list(NAV_ITEMS.keys())
     HR_PAGES = [
         "Home", "Dashboard", "Employees", "Performance Periods",
         "Performance Areas", "Assessments", "Analytics", "Predictions",
@@ -161,20 +256,38 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
     elif role == "hr":
         allowed_pages = HR_PAGES
     else:
-        allowed_pages = ADMIN_PAGES
+        # Admin gets all NAV_ITEMS plus User Management
+        allowed_pages = list(NAV_ITEMS.keys()) + list(ADMIN_NAV_ITEMS.keys())
 
     visible_nav = {k: v for k, v in NAV_ITEMS.items() if k in allowed_pages}
+    # Also add admin-only nav items
+    for k, v in ADMIN_NAV_ITEMS.items():
+        if k in allowed_pages:
+            visible_nav[k] = v
 
     if "active_page" not in st.session_state or st.session_state.active_page not in allowed_pages:
         st.session_state.active_page = "Dashboard"
 
-    selected = st.sidebar.radio(
-        "Main navigation",
+    selected_idx = list(visible_nav.keys()).index(st.session_state.active_page) if st.session_state.active_page in visible_nav else 0
+
+    # Render navigation using radio with custom format_func for icons
+    def nav_formatter(p):
+        icon_key = NAV_ICONS.get(p, "pulse")
+        icon = ICONS.get(icon_key, ICONS["pulse"])
+        return f'{icon} {visible_nav[p]}'
+
+    selected_page = st.sidebar.radio(
+        "Navigation",
         options=list(visible_nav.keys()),
-        format_func=lambda page: visible_nav[page],
+        index=selected_idx,
+        format_func=nav_formatter,
         label_visibility="collapsed",
-        key="active_page",
+        key="_nav_radio",
     )
+
+    if selected_page != st.session_state.active_page:
+        st.session_state.active_page = selected_page
+        st.rerun()
 
     role_colors = {"admin": "#168C83", "hr": "#D97706", "employee": "#102A43"}
     role_color = role_colors.get(role, "#64748B")
@@ -207,16 +320,11 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
     )
 
     # Sign Out Button
-    if st.sidebar.button("🚪  Sign Out", use_container_width=True, key="sidebar_logout_btn"):
-        if "user" in st.session_state:
-            u_id = st.session_state.user.get("user_id")
-            log_audit(u_id, "LOGOUT", "user", u_id, f"User {st.session_state.user.get('email')} signed out")
-            del st.session_state.user
-        st.session_state.auth_page = "login"
-        st.query_params.clear()
+    if st.sidebar.button("Sign Out", use_container_width=True, key="sidebar_logout_btn"):
+        st.session_state["show_logout_confirm"] = True
         st.rerun()
 
-    return selected
+    return st.session_state.active_page
 
 
 def _topbar(page: str, unread_count: int, admin_name: str) -> None:
@@ -240,26 +348,30 @@ def _topbar(page: str, unread_count: int, admin_name: str) -> None:
             unsafe_allow_html=True,
         )
     with home_col:
-        if st.button("🌐 Product Home", help="Open public product homepage", use_container_width=True, key="top_home_btn"):
+        pulse_icon = ICONS.get("pulse", "")
+        if st.button(f"{pulse_icon} Home", help="Open public product homepage", use_container_width=True, key="top_home_btn"):
             st.session_state.active_page = "Home"
             st.query_params["page"] = "Home"
             st.rerun()
     with notification_col:
-        notif_label = f"🔔 {unread_count}" if unread_count else "🔔 Inbox"
+        notif_icon = ICONS.get("notifications", "")
+        notif_label = f"{notif_icon} {unread_count}" if unread_count else f"{notif_icon} Inbox"
         if st.button(notif_label, help="View notifications and pending reviews", use_container_width=True, key="top_notif"):
             st.session_state.active_page = "Notifications"
             st.rerun()
     with profile_col:
         role_tag = f"({role.upper()})"
         if role == "admin":
-            if st.button(f"⚙ {first_name} {role_tag}", help="Workspace settings", use_container_width=True, key="top_profile"):
+            settings_icon = ICONS.get("settings", "")
+            if st.button(f"{settings_icon} {first_name} {role_tag}", help="Workspace settings", use_container_width=True, key="top_profile"):
                 st.session_state.active_page = "Settings"
                 st.rerun()
         else:
+            user_icon = ICONS.get("dashboard", "")
             st.markdown(
                 f"""
-                <div style="text-align:center; padding:0.4rem 0.5rem; background:#FFFFFF; border:1px solid #E2E8F0; border-radius:6px; font-size:0.75rem; font-weight:600; color:var(--wp-navy);">
-                    👤 {escape(first_name)} <span style="font-size:0.65rem; color:#168C83;">{escape(role_tag)}</span>
+                <div style="text-align:center; padding:0.4rem 0.5rem; background:#FFFFFF; border:1px solid #E2E8F0; border-radius:6px; font-size:0.75rem; font-weight:600; color:var(--wp-navy); display:flex; align-items:center; justify-content:center; gap:0.35rem;">
+                    {user_icon} {escape(first_name)} <span style="font-size:0.65rem; color:#168C83;">{escape(role_tag)}</span>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1666,6 +1778,128 @@ def _notifications_page() -> None:
 # =============================================================================
 # 10. SETTINGS & DEMONSTRATION SUITE
 # =============================================================================
+def _user_management_page() -> None:
+    """Admin-only page for user management."""
+    if not require_role("admin"):
+        _unauthorized_alert()
+        return
+
+    render_page_heading(
+        title="User Management",
+        subtitle="Manage user accounts, roles, and system access.",
+        breadcrumb="ADMINISTRATION",
+    )
+
+    # Get all users
+    users = get_all_users()
+
+    # User table view
+    st.markdown("**Active Users**")
+    if users:
+        user_df = pd.DataFrame([
+            {
+                "User": u.get("full_name", "—"),
+                "Email": u.get("email", "—"),
+                "Role": (u.get("role", "employee").upper() or "EMPLOYEE"),
+                "Status": "Active" if u.get("is_active") else "Inactive",
+                "Last Login": u.get("last_login", "Never")[:19] if u.get("last_login") else "Never",
+            }
+            for u in users
+        ])
+        st.dataframe(user_df, use_container_width=True, hide_index=True)
+
+        # Action column for each user
+        st.markdown("")
+        st.markdown("**User Actions**")
+        for user in users:
+            with st.expander(f"{user.get('full_name', 'User')} ({user.get('email', '')})", expanded=False):
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.markdown(f"**Role:** {user.get('role', 'employee').upper()}")
+                    st.markdown(f"**Status:** {'Active' if user.get('is_active') else 'Inactive'}")
+                    st.markdown(f"**Employee ID:** {user.get('employee_id', 'Not linked')}")
+                with col2:
+                    if st.button("Edit", key=f"edit_{user['user_id']}"):
+                        st.session_state.edit_user_id = user['user_id']
+
+                        # Inline edit form
+                        with st.form(f"edit_form_{user['user_id']}", clear_on_submit=True):
+                            new_name = st.text_input("Full Name", value=user.get('full_name', ''))
+                            new_role = st.selectbox(
+                                "Role",
+                                options=["employee", "hr", "admin"],
+                                index=["employee", "hr", "admin"].index(user.get('role', 'employee'))
+                            )
+                            new_status = st.checkbox("Active", value=user.get('is_active', True))
+
+                            if st.form_submit_button("Update User"):
+                                if update_user(
+                                    user['user_id'],
+                                    full_name=new_name,
+                                    role=new_role,
+                                    is_active=new_status
+                                ):
+                                    st.success("User updated successfully.")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to update user.")
+
+                        break
+    else:
+        st.info("No users found in the system.")
+
+    # Audit Log Section
+    st.markdown("---")
+    _section_heading("Recent Audit Activity")
+    audit_entries = get_audit_log(limit=50)
+    if audit_entries:
+        audit_df = pd.DataFrame([
+            {
+                "Time": entry.get("performed_at", "")[:19],
+                "Action": entry.get("action", ""),
+                "User": entry.get("performed_by_email", "System") or "System",
+                "Detail": (entry.get("detail", "")[:60] + "...") if len(str(entry.get("detail", ""))) > 60 else entry.get("detail", ""),
+            }
+            for entry in audit_entries
+        ])
+        st.dataframe(audit_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No recent audit activity recorded.")
+
+    # Create new user section
+    st.markdown("---")
+    _section_heading("Create New User")
+    with st.form("create_user_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            new_email = st.text_input("Email", placeholder="user@workpulse.local")
+        with col2:
+            new_name = st.text_input("Full Name", placeholder="User Name")
+        with col3:
+            new_role = st.selectbox("Role", options=["employee", "hr", "admin"])
+
+        st.markdown("**Demo Password (visible for easy testing):** `Create@WorkPulse2024`")
+
+        if st.form_submit_button("Create User", type="primary", use_container_width=True):
+            if not new_email.strip() or not new_name.strip():
+                st.error("Email and Full Name are required.")
+            elif "@" not in new_email:
+                st.error("Please enter a valid email address.")
+            else:
+                try:
+                    create_user(
+                        email=new_email,
+                        full_name=new_name,
+                        role=new_role,
+                        created_by_user_id=None,  # Will be set to admin
+                        plain_password="Create@WorkPulse2024",
+                    )
+                    st.success(f"User {new_email} created with {new_role} role.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to create user: {e}")
+
+
 def _settings_page() -> None:
     render_page_heading(
         title="Workspace Settings & Demo Suite",
@@ -1769,13 +2003,23 @@ def main() -> None:
     admin_name = settings.get("admin_name", "Administrator")
     workspace_name = settings.get("workspace_name", "WorkPulse")
 
+    # Get current user info for role-based decisions
+    user = st.session_state.get("user", {})
+    role = user.get("role", "admin").lower()
+
+    # Add admin-only navigation items
+    if role == "admin":
+        visible_nav = {**NAV_ITEMS, **ADMIN_NAV_ITEMS}
+    else:
+        visible_nav = NAV_ITEMS
+
     # Synchronize URL query parameters with active_page or auth
     query_page = st.query_params.get("page")
     if query_page:
         qp_clean = str(query_page).strip().lower()
-        if qp_clean in ("login", "signin", "sign_in", "employee/login", "hr/login", "admin/login"):
-            st.session_state.auth_page = "login"
-            st.session_state.active_page = "login"
+        if qp_clean in ("login", "signin", "sign_in", "employee/login", "hr/login", "admin/login", "reset_password"):
+            st.session_state.auth_page = "login" if qp_clean != "reset_password" else "reset_password"
+            st.session_state.active_page = qp_clean if qp_clean != "employee/login" and qp_clean != "hr/login" and qp_clean != "admin/login" else "login"
             if "employee" in qp_clean:
                 st.query_params["role"] = "employee"
             elif "hr" in qp_clean:
@@ -1783,7 +2027,7 @@ def main() -> None:
             elif "admin" in qp_clean:
                 st.query_params["role"] = "admin"
         else:
-            for k in list(NAV_ITEMS.keys()) + ["Home"]:
+            for k in list(visible_nav.keys()) + ["Home"]:
                 if k.lower() == qp_clean:
                     st.session_state.active_page = k
                     break
@@ -1804,15 +2048,20 @@ def main() -> None:
     # Authentication Gate for internal workspace
     if "user" not in st.session_state:
         auth_page = st.session_state.get("auth_page", "login")
-        if auth_page == "forgot_password":
-            render_forgot_password_page()
+        if auth_page == "reset_password":
+            render_password_reset_page()
         else:
             render_login_page()
         return
 
-    # Enforce password change if required
+    # Enforce password change if required (except for Admin who can bypass)
     if st.session_state.user.get("must_change_password"):
         render_change_password_page(st.session_state.user)
+        return
+
+    # Check for logout confirmation
+    if st.session_state.get("show_logout_confirm"):
+        render_logout_confirmation_page()
         return
 
     # Render Sidebar
@@ -1857,6 +2106,8 @@ def main() -> None:
         _notifications_page()
     elif page == "Settings":
         _settings_page()
+    elif page == "User Management":
+        _user_management_page()
 
 
 if __name__ == "__main__":

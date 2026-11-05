@@ -13,6 +13,8 @@ from auth.auth_service import (
     get_lockout_remaining_minutes,
     change_password,
     generate_password_reset_token,
+    validate_reset_token,
+    consume_reset_token,
 )
 
 
@@ -623,3 +625,104 @@ def render_forgot_password_page() -> None:
     if st.button("← Back to Sign In", key="forgot_back"):
         st.session_state.auth_page = "login"
         st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Password Reset Token Entry Page
+# ---------------------------------------------------------------------------
+
+def render_password_reset_page() -> None:
+    """Render the page where user enters a reset token to set a new password."""
+    _inject_auth_css()
+
+    st.html("""
+    <div class="wp-auth-right-panel" style="min-height:auto; padding:2rem 0 1rem 0;">
+        <h1 class="wp-auth-form-title">Reset Your Password</h1>
+        <p class="wp-auth-form-sub">
+            Enter the password reset token you received to set a new password.
+        </p>
+    </div>
+    """)
+
+    with st.form("reset_token_form", clear_on_submit=False):
+        token = st.text_input(
+            "Password Reset Token",
+            type="password",
+            placeholder="64-character hex token",
+        )
+        new_pw = st.text_input("New Password", type="password", placeholder="Minimum 8 characters")
+        confirm_pw = st.text_input("Confirm New Password", type="password")
+        submitted = st.form_submit_button("Reset Password", type="primary", use_container_width=True)
+
+    if submitted:
+        if not token.strip():
+            st.error("Please enter your reset token.")
+        elif not new_pw or len(new_pw) < 8:
+            st.error("Password must be at least 8 characters long.")
+        elif new_pw != confirm_pw:
+            st.error("Passwords do not match. Please try again.")
+        elif not consume_reset_token(token.strip(), new_pw):
+            st.error("Invalid or expired token. Please request a new password reset.")
+        else:
+            st.success("✓ Password reset successfully!")
+            st.info("You can now sign in with your new password.")
+            if st.button("Go to Login", key="reset_done_login"):
+                st.session_state.auth_page = "login"
+                st.rerun()
+
+    if st.button("← Back to Sign In", key="reset_back"):
+        st.session_state.auth_page = "login"
+        st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Logout Confirmation Page
+# ---------------------------------------------------------------------------
+
+def render_logout_confirmation_page() -> None:
+    """Render logout confirmation before signing out."""
+    _inject_auth_css()
+    user = st.session_state.get("user", {})
+    user_name = user.get("full_name", "User").split()[0]
+
+    st.html(f"""
+    <div class="wp-auth-right-panel" style="min-height:auto; padding:2rem 0 1rem 0;">
+        <h1 class="wp-auth-form-title">Sign Out</h1>
+        <p class="wp-auth-form-sub">
+            Are you sure you want to sign out, {user_name}?
+        </p>
+    </div>
+    """)
+
+    c_confirm, c_cancel = st.columns([1.2, 1])
+    with c_confirm:
+        if st.button("Yes, Sign Out", type="primary", use_container_width=True, key="confirm_signout"):
+            if "user" in st.session_state:
+                u_id = st.session_state.user.get("user_id")
+                log_audit(u_id, "LOGOUT", "user", u_id, f"User {st.session_state.user.get('email')} signed out")
+                del st.session_state.user
+            st.session_state.auth_page = "login"
+            st.session_state.pop("show_logout_confirm", None)
+            st.rerun()
+    with c_cancel:
+        if st.button("Cancel", use_container_width=True, key="cancel_signout"):
+            st.session_state.pop("show_logout_confirm", None)
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Navigation Link Helper
+# ---------------------------------------------------------------------------
+
+def go_to_home() -> None:
+    """Navigate to the Product Home page."""
+    st.session_state.active_page = "Home"
+    st.query_params["page"] = "Home"
+    st.rerun()
+
+
+def go_to_login() -> None:
+    """Navigate to the login page."""
+    st.session_state.auth_page = "login"
+    st.query_params.clear()
+    st.rerun()
