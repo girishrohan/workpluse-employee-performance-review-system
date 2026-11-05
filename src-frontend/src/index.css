@@ -181,12 +181,87 @@ body {
 
 .dark { background: #0f172a; color: #e2e8f0; }
 
-/* Tailwind-like utilities for card */
-@layer utilities {
-  .card {
-    background-color: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 0.75rem;
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  }
+/* Additional Tailwind-like utilities for consistent styling */
+
+/* Spacing */
+.m-0 { margin: 0; }
+.m-1 { margin: 0.25rem; }
+.m-2 { margin: 0.5rem; }
+.m-3 { margin: 0.75rem; }
+.m-4 { margin: 1rem; }
+.m-5 { margin: 1.25rem; }
+.m-6 { margin: 1.5rem; }
+.m-auto { margin: auto; }
+
+/* Grid gaps */
+.gap-1 { gap: 0.25rem; }
+.gap-5 { gap: 1.25rem; }
+
+/* Object fit */
+.object-cover { object-fit: cover; }
+.object-contain { object-fit: contain; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #f1f1f1; }
+::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+
+/* Transition utilities */
+.transition-all { transition-property: all; transition-duration: 150ms; transition-timing-function: ease-in-out; }
+.ease-in-out { transition-timing-function: ease-in-out; }
+
+/* Input focus ring */
+input:focus, textarea:focus, button:focus { outline: none; }
+input:focus:ring, textarea:focus:ring, button:focus:ring { box-shadow: 0 0 0 3px rgba(22, 140, 131, 0.3); }
+
+/* Badge styles */
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 9999px;
+}
+
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+@keyframes loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Table utilities */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table th, .table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+.table thead th {
+  background-color: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+}
+.table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+/* Card enhancements */
+.card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  transition: box-shadow 150ms ease-in-out;
+}
+.card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }

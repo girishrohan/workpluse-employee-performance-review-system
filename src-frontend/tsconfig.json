@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
-    "target": ["ES2020", "DOM"],
+    "target": "ES2020",
     "useDefineForClassFields": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": ["ESNext", "CommonJS"],
+    "module": "ESNext",
     "skipLibCheck": true,
-    "moduleResolution": ["Node", "Bundler"],
+    "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useLocation, Outlet } from 'react-router-dom';
+import { NavLink, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import {
   Home,
   Users,
@@ -20,18 +20,31 @@ interface User {
 }
 
 interface AppProps {
-  user: { user: User; role: string };
+  user: User;
   onLogout: () => void;
 }
 
-export default function App({ user, onLogout }: AppProps) {
-  const { role } = user;
-  const location = useLocation();
+const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
+  `flex items-center py-2 text-sm font-medium transition-all duration-200 ${
+    isActive
+      ? 'border-b-2 border-teal-500 text-teal-600'
+      : 'text-gray-500 hover:text-navy-600 hover:border-b-2 hover:border-transparent'
+  }`;
 
-  const isAdmin = role === 'admin';
-  const isHR = role === 'hr' || isAdmin;
+export default function App({ user, onLogout }: AppProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const isAdmin = user.role === 'admin';
+  const isHR = user.role === 'hr' || isAdmin;
 
   const showNav = location.pathname !== '/login';
+
+  const handleLogout = () => {
+    localStorage.removeItem('access_token');
+    onLogout();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -51,14 +64,14 @@ export default function App({ user, onLogout }: AppProps) {
                 </div>
                 <div className="flex items-center space-x-4">
                   <span className="hidden sm:block text-sm opacity-80">
-                    {user.user.full_name}
+                    {user.full_name}
                   </span>
                   <span className="text-xs bg-teal-500 px-2 py-1 rounded-full">
-                    {role.toUpperCase()}
+                    {user.role.toUpperCase()}
                   </span>
                   <button
-                    onClick={onLogout}
-                    className="p-2 hover:bg-white/10 rounded-full"
+                    onClick={handleLogout}
+                    className="p-2 hover:bg-white/10 rounded-full transition-colors"
                     title="Logout"
                   >
                     <LogOut className="w-5 h-5" />
@@ -71,95 +84,41 @@ export default function App({ user, onLogout }: AppProps) {
           <nav className="bg-white border-b border-gray-200">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="flex space-x-8">
-                <NavLink
-                  to="/"
-                  className={({ isActive }) =>
-                    `flex items-center py-2 text-sm font-medium ${
-                      isActive
-                        ? 'border-b-2 border-teal-500 text-teal-600'
-                        : 'text-gray-500 hover:text-navy-600'
-                    }`
-                  }
-                >
-                  <Home className="w-4 h-4 mr-1" />
+                <NavLink to="/" className={navLinkClasses}>
+                  <Home className="w-4 h-4 mr-2" />
                   Dashboard
                 </NavLink>
                 {isAdmin && (
                   <>
-                    <NavLink
-                      to="/admin/employees"
-                      className={({ isActive }) =>
-                        `flex items-center py-2 text-sm font-medium ${
-                          isActive
-                            ? 'border-b-2 border-teal-500 text-teal-600'
-                            : 'text-gray-500 hover:text-navy-600'
-                        }`
-                      }
-                    >
-                      <Users className="w-4 h-4 mr-1" />
+                    <NavLink to="/admin/employees" className={navLinkClasses}>
+                      <Users className="w-4 h-4 mr-2" />
                       Employees
                     </NavLink>
-                    <NavLink
-                      to="/admin/periods"
-                      className={({ isActive }) =>
-                        `flex items-center py-2 text-sm font-medium ${
-                          isActive
-                            ? 'border-b-2 border-teal-500 text-teal-600'
-                            : 'text-gray-500 hover:text-navy-600'
-                        }`
-                      }
-                    >
-                      <Target className="w-4 h-4 mr-1" />
+                    <NavLink to="/admin/periods" className={navLinkClasses}>
+                      <Target className="w-4 h-4 mr-2" />
                       Review Cycles
                     </NavLink>
                   </>
                 )}
                 {isHR && (
                   <>
-                    <NavLink
-                      to="/hr/assessments"
-                      className={({ isActive }) =>
-                        `flex items-center py-2 text-sm font-medium ${
-                          isActive
-                            ? 'border-b-2 border-teal-500 text-teal-600'
-                            : 'text-gray-500 hover:text-navy-600'
-                        }`
-                      }
-                    >
-                      <Award className="w-4 h-4 mr-1" />
+                    <NavLink to="/hr/assessments" className={navLinkClasses}>
+                      <Award className="w-4 h-4 mr-2" />
                       Assessments
                     </NavLink>
-                    <NavLink
-                      to="/hr/analytics"
-                      className={({ isActive }) =>
-                        `flex items-center py-2 text-sm font-medium ${
-                          isActive
-                            ? 'border-b-2 border-teal-500 text-teal-600'
-                            : 'text-gray-500 hover:text-navy-600'
-                        }`
-                      }
-                    >
-                      <BarChart3 className="w-4 h-4 mr-1" />
+                    <NavLink to="/hr/analytics" className={navLinkClasses}>
+                      <BarChart3 className="w-4 h-4 mr-2" />
                       Analytics
                     </NavLink>
                   </>
                 )}
-                <NavLink
-                  to="/settings"
-                  className={({ isActive }) =>
-                    `flex items-center py-2 text-sm font-medium ${
-                      isActive
-                        ? 'border-b-2 border-teal-500 text-teal-600'
-                        : 'text-gray-500 hover:text-navy-600'
-                    }`
-                  }
-                >
-                  <Settings className="w-4 h-4 mr-1" />
+                <NavLink to="/settings" className={navLinkClasses}>
+                  <Settings className="w-4 h-4 mr-2" />
                   Settings
                 </NavLink>
               </div>
             </div>
-          </header>
+          </nav>
         </>
       )}
       <main className="max-w-7xl mx-auto py-8 px-4">
