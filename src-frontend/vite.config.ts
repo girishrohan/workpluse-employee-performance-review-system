@@ -14,6 +14,10 @@ export default defineConfig({
         secure: false,
       },
     },
+    // Fix flickering by ensuring smooth transitions
+    hmr: {
+      overlay: false,
+    },
   },
   build: {
     outDir: '../dist',
@@ -26,5 +30,7 @@ export default defineConfig({
         },
       },
     },
+    // Ensure CSS is properly extracted
+    cssCodeSplit: true,
   },
 });

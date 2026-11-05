@@ -9,6 +9,10 @@ import {
   Settings,
   LogOut,
   Shield,
+  Calendar,
+  TrendingUp,
+  ClipboardCheck,
+  FileText
 } from 'lucide-react';
 
 interface User {
@@ -24,12 +28,55 @@ interface AppProps {
   onLogout: () => void;
 }
 
-const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
-  `flex items-center py-2 text-sm font-medium transition-all duration-200 ${
-    isActive
-      ? 'border-b-2 border-teal-500 text-teal-600'
-      : 'text-gray-500 hover:text-navy-600 hover:border-b-2 hover:border-transparent'
-  }`;
+const NAVIGATION_ITEMS = [
+  { name: 'Dashboard', href: '/', icon: Home },
+  { name: 'Employees', href: '/admin/employees', icon: Users, roles: ['admin'] },
+  { name: 'Review Cycles', href: '/admin/periods', icon: Calendar, roles: ['admin'] },
+  { name: 'Assessments', href: '/hr/assessments', icon: ClipboardCheck, roles: ['admin', 'hr'] },
+  { name: 'Analytics', href: '/hr/analytics', icon: TrendingUp, roles: ['admin', 'hr'] },
+  { name: 'Reports', href: '/reports', icon: FileText, roles: ['admin', 'hr'] },
+  { name: 'Settings', href: '/settings', icon: Settings },
+];
+
+const SidebarNav = ({ user }: { user: User }) => {
+  const location = useLocation();
+
+  return (
+    <nav className="w-64 bg-white border-r border-gray-200 h-screen fixed left-0 top-16 z-40 overflow-y-auto">
+      <div className="px-4 py-6 space-y-2">
+        {NAVIGATION_ITEMS.filter(item => {
+          if (item.roles) {
+            return item.roles.includes(user.role);
+          }
+          return true;
+        }).map((item) => {
+          const Icon = item.icon;
+          const isActive = location.pathname === item.href || location.pathname.startsWith(item.href + '/');
+          return (
+            <NavLink
+              key={item.href}
+              to={item.href}
+              className={({ isActive }) =>
+                `flex items-center w-full px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
+                  isActive
+                    ? 'bg-teal-50 text-teal-700 border-r-2 border-teal-500 pl-4'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-navy-700'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-teal-600' : 'text-gray-500'}`} />
+                  <span>{item.name}</span>
+                </>
+              )}
+            </NavLink>
+          );
+        })}
+      </div>
+    </nav>
+  );
+};
 
 export default function App({ user, onLogout }: AppProps) {
   const location = useLocation();
@@ -50,7 +97,7 @@ export default function App({ user, onLogout }: AppProps) {
     <div className="min-h-screen bg-gray-50">
       {showNav && (
         <>
-          <header className="bg-navy-700 text-white shadow-lg">
+          <header className="bg-navy-700 text-white shadow-lg sticky top-0 z-30">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="flex justify-between items-center h-16">
                 <div className="flex items-center space-x-3">
@@ -81,49 +128,21 @@ export default function App({ user, onLogout }: AppProps) {
             </div>
           </header>
 
-          <nav className="bg-white border-b border-gray-200">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex space-x-8">
-                <NavLink to="/" className={navLinkClasses}>
-                  <Home className="w-4 h-4 mr-2" />
-                  Dashboard
-                </NavLink>
-                {isAdmin && (
-                  <>
-                    <NavLink to="/admin/employees" className={navLinkClasses}>
-                      <Users className="w-4 h-4 mr-2" />
-                      Employees
-                    </NavLink>
-                    <NavLink to="/admin/periods" className={navLinkClasses}>
-                      <Target className="w-4 h-4 mr-2" />
-                      Review Cycles
-                    </NavLink>
-                  </>
-                )}
-                {isHR && (
-                  <>
-                    <NavLink to="/hr/assessments" className={navLinkClasses}>
-                      <Award className="w-4 h-4 mr-2" />
-                      Assessments
-                    </NavLink>
-                    <NavLink to="/hr/analytics" className={navLinkClasses}>
-                      <BarChart3 className="w-4 h-4 mr-2" />
-                      Analytics
-                    </NavLink>
-                  </>
-                )}
-                <NavLink to="/settings" className={navLinkClasses}>
-                  <Settings className="w-4 h-4 mr-2" />
-                  Settings
-                </NavLink>
+          <div className="flex pt-16">
+            <SidebarNav user={user} />
+            <main className="flex-1 overflow-y-auto">
+              <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+                <Outlet />
               </div>
-            </div>
-          </nav>
+            </main>
+          </div>
         </>
       )}
-      <main className="max-w-7xl mx-auto py-8 px-4">
-        <Outlet />
-      </main>
+      {showNav === false && (
+        <main className="min-h-screen bg-gray-50">
+          <Outlet />
+        </main>
+      )}
     </div>
   );
 }

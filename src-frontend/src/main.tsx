@@ -2,10 +2,38 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from 'react-query';
-import { Home, Users, BarChart3, Award, Target, Settings, LogOut, Shield, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import {
+  Home,
+  Users,
+  BarChart3,
+  Award,
+  Target,
+  Settings,
+  LogOut,
+  Shield,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  FileText,
+  ClipboardCheck,
+  Calendar,
+  TrendingUp,
+  UserCheck
+} from 'lucide-react';
 import axios from 'axios';
 
 const queryClient = new QueryClient();
+
+const NAVIGATION_ITEMS = [
+  { name: 'Dashboard', href: '/', icon: Home },
+  { name: 'Employees', href: '/admin/employees', icon: Users, roles: ['admin'] },
+  { name: 'Review Cycles', href: '/admin/periods', icon: Calendar, roles: ['admin'] },
+  { name: 'Assessments', href: '/hr/assessments', icon: ClipboardCheck, roles: ['admin', 'hr'] },
+  { name: 'Analytics', href: '/hr/analytics', icon: TrendingUp, roles: ['admin', 'hr'] },
+  { name: 'Reports', href: '/reports', icon: FileText, roles: ['admin', 'hr'] },
+  { name: 'Settings', href: '/settings', icon: Settings },
+];
 
 interface User {
   user_id: number;
@@ -15,20 +43,67 @@ interface User {
   employee_id?: number;
 }
 
-const api = axios.create({
-  baseURL: '/api',
-});
+interface AppProps {
+  user: User;
+  onLogout: () => void;
+}
 
-const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
-  `flex items-center py-2 text-sm font-medium transition-all duration-200 ${
+const SidebarNav = ({ user }: { user: User }) => {
+  const location = useLocation();
+  const isAdmin = user.role === 'admin';
+  const isHR = user.role === 'hr' || isAdmin;
+
+  return (
+    <nav className="w-64 bg-white border-r border-gray-200 h-screen fixed left-0 top-16 z-40">
+      <div className="px-4 py-6 space-y-2">
+        {NAVIGATION_ITEMS.filter(item => {
+          if (item.roles) {
+            return item.roles.includes(user.role) || item.roles.includes(isAdmin ? 'admin' : 'hr');
+          }
+          return true;
+        }).map((item) => {
+          const Icon = item.icon;
+          const isActive = location.pathname === item.href || location.pathname.startsWith(item.href);
+          return (
+            <NavLink
+              key={item.href}
+              to={item.href}
+              className={({ isActive }) =>
+                `flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
+                  isActive
+                    ? 'bg-teal-50 text-teal-700 border-r-2 border-teal-500 pl-4'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-navy-700'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-teal-600' : 'text-gray-500'}`} />
+                  <span>{item.name}</span>
+                </>
+              )}
+            </NavLink>
+          );
+        })}
+      </div>
+    </nav>
+  );
+};
+
+interface NavLinkClassesProps {
+  isActive: boolean;
+}
+
+const navLinkClasses = ({ isActive }: NavLinkClassesProps) =>
+  `flex items-center w-full px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
     isActive
-      ? 'border-b-2 border-teal-500 text-teal-600'
-      : 'text-gray-500 hover:text-navy-600 hover:border-b-2 hover:border-transparent'
+      ? 'bg-teal-50 text-teal-700 border-r-2 border-teal-500 pl-4'
+      : 'text-gray-600 hover:bg-gray-50 hover:text-navy-700'
   }`;
 
 function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
   const [email, setEmail] = React.useState('admin@workpulse.local');
-  const [password, setPassword] = React.useState('');
+  const [password, setPassword] = React.useState('password');
   const [error, setError] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
@@ -64,83 +139,104 @@ function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-navy-50 to-teal-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
-        <div className="bg-navy-700 px-8 py-6 text-center">
-          <div className="w-16 h-16 mx-auto bg-teal-500 rounded-full flex items-center justify-center mb-3">
-            <Shield className="w-8 h-8 text-white" />
+      <div className="w-full max-w-md">
+        <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+          <div className="bg-navy-700 px-8 py-8 text-center">
+            <div className="w-16 h-16 mx-auto bg-teal-500 rounded-full flex items-center justify-center mb-4">
+              <Shield className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold text-white">WorkPulse</h1>
+            <p className="text-teal-200 text-sm mt-2">Employee Performance Review System</p>
           </div>
-          <h1 className="text-2xl font-bold text-white">WorkPulse</h1>
-          <p className="text-teal-200 text-sm mt-1">Employee Performance Review System</p>
-        </div>
-        <div className="px-8 py-8">
-          <h2 className="text-xl font-bold text-navy-900 mb-6 text-center">Welcome Back</h2>
-          <p className="text-gray-500 text-center mb-6">Sign in to access your performance reviews</p>
+          <div className="px-8 py-8">
+            <h2 className="text-2xl font-bold text-navy-900 mb-2 text-center">Welcome Back</h2>
+            <p className="text-gray-500 text-center mb-6">Sign in to access your performance reviews</p>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="email">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-3.5 w-5 h-5 text-gray-400" />
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200"
-                  placeholder="you@company.com"
-                  required
-                />
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">
+                {error}
               </div>
-            </div>
+            )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="password">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-3.5 w-5 h-5 text-gray-400" />
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200"
-                  placeholder="Enter your password"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="email">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 placeholder-gray-400"
+                    placeholder="you@company.com"
+                    required
+                  />
+                </div>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 px-4 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="password">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-12 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 placeholder-gray-400"
+                    placeholder="Enter your password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-3.5 text-gray-400 hover:text-gray-600 focus:outline-none"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
+                  />
+                  <span className="ml-2 text-sm text-gray-600">Remember me</span>
+                </label>
+                <a href="#" className="text-sm text-teal-600 hover:text-teal-700 font-medium">
+                  Forgot password?
+                </a>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 px-4 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+              >
+                {loading ? 'Signing in...' : 'Sign In'}
+              </button>
+            </form>
+
+            <div className="mt-6 text-center">
+              <p className="text-xs text-gray-400">
+                Demo account: admin@workpulse.local / password
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// Dashboard
 function Dashboard({ user }: { user: User }) {
   return (
     <div className="space-y-8">
@@ -158,9 +254,9 @@ function Dashboard({ user }: { user: User }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <DashboardCard title="Total Employees" value="0" icon={<Users className="w-6 h-6 text-teal-600" />} />
-        <DashboardCard title="Active Periods" value="0" icon={<Target className="w-6 h-6 text-teal-600" />} />
+        <DashboardCard title="Active Periods" value="0" icon={<Calendar className="w-6 h-6 text-teal-600" />} />
         <DashboardCard title="Completed Reviews" value="0" icon={<Award className="w-6 h-6 text-teal-600" />} />
-        <DashboardCard title="Pending Reviews" value="0" icon={<BarChart3 className="w-6 h-6 text-teal-600" />} />
+        <DashboardCard title="Pending Reviews" value="0" icon={<ClipboardCheck className="w-6 h-6 text-teal-600" />} />
       </div>
 
       <div className="card p-6">
@@ -176,21 +272,21 @@ function Dashboard({ user }: { user: User }) {
           <QuickActionCard
             title="Review Cycles"
             description="Configure review periods"
-            icon={<Target className="w-5 h-5" />}
+            icon={<Calendar className="w-5 h-5" />}
             href="/admin/periods"
             show={user.role === 'admin'}
           />
           <QuickActionCard
             title="Assessments"
             description="View team assessments"
-            icon={<Award className="w-5 h-5" />}
+            icon={<ClipboardCheck className="w-5 h-5" />}
             href="/hr/assessments"
             show={user.role === 'hr' || user.role === 'admin'}
           />
           <QuickActionCard
             title="Analytics"
             description="Performance insights"
-            icon={<BarChart3 className="w-5 h-5" />}
+            icon={<TrendingUp className="w-5 h-5" />}
             href="/hr/analytics"
             show={user.role === 'hr' || user.role === 'admin'}
           />
@@ -243,7 +339,6 @@ function QuickActionCard({ title, description, icon, href, show = true }: {
   );
 }
 
-// Employee Management
 function EmployeeManagement() {
   const [employees, setEmployees] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -306,7 +401,6 @@ function EmployeeManagement() {
   );
 }
 
-// Review Periods
 function PeriodManagement() {
   const [periods, setPeriods] = React.useState([]);
 
@@ -326,7 +420,7 @@ function PeriodManagement() {
       <div className="card overflow-hidden">
         {periods.length === 0 ? (
           <div className="p-8 text-center">
-            <Target className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+            <Calendar className="w-12 h-12 mx-auto text-gray-300 mb-4" />
             <p className="text-gray-500">No review periods defined</p>
             <p className="text-sm text-gray-400 mt-1">Create your first review cycle to get started</p>
           </div>
@@ -368,7 +462,6 @@ function PeriodManagement() {
   );
 }
 
-// Assessments
 function HRAssessments() {
   const [assessments, setAssessments] = React.useState([]);
 
@@ -388,7 +481,7 @@ function HRAssessments() {
       <div className="card overflow-hidden">
         {assessments.length === 0 ? (
           <div className="p-8 text-center">
-            <Award className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+            <ClipboardCheck className="w-12 h-12 mx-auto text-gray-300 mb-4" />
             <p className="text-gray-500">No assessments recorded</p>
             <p className="text-sm text-gray-400 mt-1">Assessments will appear here once reviews are completed</p>
           </div>
@@ -430,7 +523,6 @@ function HRAssessments() {
   );
 }
 
-// Analytics
 function HRAnalytics() {
   const [analytics, setAnalytics] = React.useState<any>(null);
 
@@ -446,7 +538,7 @@ function HRAnalytics() {
           <p className="text-gray-600 mt-1">Performance insights and metrics</p>
         </div>
         <div className="card p-8 text-center">
-          <div className="skeleton h-8 w-48 mx-auto rounded"></div>
+          <div className="skeleton h-8 w-48 mx-auto rounded mb-4"></div>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="skeleton h-24 rounded-lg"></div>
             <div className="skeleton h-24 rounded-lg"></div>
@@ -476,7 +568,7 @@ function HRAnalytics() {
         <DashboardCard
           title="Avg Task Completion"
           value={`${analytics.avg_task_completion?.toFixed(1) || '0'}%`}
-          icon={<Target className="w-6 h-6 text-teal-600" />}
+          icon={<UserCheck className="w-6 h-6 text-teal-600" />}
         />
         <DashboardCard
           title="Mean Score"
@@ -493,7 +585,6 @@ function HRAnalytics() {
   );
 }
 
-// Settings
 function SettingsPage() {
   return (
     <div className="space-y-6">
@@ -505,40 +596,56 @@ function SettingsPage() {
       <div className="card p-6">
         <h2 className="text-lg font-semibold text-navy-900 mb-4">Application Settings</h2>
         <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div>
-              <h3 className="font-medium text-navy-900">Dark Mode</h3>
-              <p className="text-sm text-gray-500">Enable dark theme for the application</p>
-            </div>
-            <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-300 transition-colors">
-              <span className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"></span>
-            </button>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div>
-              <h3 className="font-medium text-navy-900">Email Notifications</h3>
-              <p className="text-sm text-gray-500">Receive email updates for review cycles</p>
-            </div>
-            <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-teal-500 transition-colors">
-              <span className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform translate-x-6"></span>
-            </button>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-            <div>
-              <h3 className="font-medium text-navy-900">Auto-save Drafts</h3>
-              <p className="text-sm text-gray-500">Automatically save assessment drafts</p>
-            </div>
-            <button className="relative inline-flex h-6 w-11 items-center rounded-full bg-teal-500 transition-colors">
-              <span className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform translate-x-6"></span>
-            </button>
-          </div>
+          <SettingRow
+            title="Dark Mode"
+            description="Enable dark theme for the application"
+            checked={false}
+          />
+          <SettingRow
+            title="Email Notifications"
+            description="Receive email updates for review cycles"
+            checked={true}
+          />
+          <SettingRow
+            title="Auto-save Drafts"
+            description="Automatically save assessment drafts"
+            checked={true}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-// Main App - Layout component with header and nav
+function SettingRow({ title, description, checked }: { title: string; description: string; checked: boolean }) {
+  return (
+    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+      <div>
+        <h3 className="font-medium text-navy-900">{title}</h3>
+        <p className="text-sm text-gray-500">{description}</p>
+      </div>
+      <label className="relative inline-flex h-6 w-11 items-center rounded-full border border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2">
+        <input
+          type="checkbox"
+          className="sr-only"
+          checked={checked}
+        />
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full shadow transition-transform ${
+            checked
+              ? 'bg-teal-500'
+              : 'bg-gray-200'
+          }`}
+        />
+      </label>
+    </div>
+  );
+}
+
+const api = axios.create({
+  baseURL: '/api',
+});
+
 function AppLayout({ user, onLogout }: { user: User; onLogout: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -555,83 +662,62 @@ function AppLayout({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {showNav && (
-        <>
-          <header className="bg-navy-700 text-white shadow-lg">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex justify-between items-center h-16">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-teal-500 rounded-full flex items-center justify-center">
-                    <Shield className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <span className="text-xl font-bold">WorkPulse</span>
-                    <div className="text-xs opacity-80">Performance Review System</div>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <span className="hidden sm:block text-sm opacity-80">
-                    {user.full_name}
-                  </span>
-                  <span className="text-xs bg-teal-500 px-2 py-1 rounded-full">
-                    {user.role.toUpperCase()}
-                  </span>
-                  <button
-                    onClick={handleLogout}
-                    className="p-2 hover:bg-white/10 rounded-full transition-colors"
-                    title="Logout"
-                  >
-                    <LogOut className="w-5 h-5" />
-                  </button>
-                </div>
+      <header className="bg-navy-700 text-white shadow-lg sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 bg-teal-500 rounded-full flex items-center justify-center">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-xl font-bold">WorkPulse</span>
+                <div className="text-xs opacity-80">Performance Review System</div>
               </div>
             </div>
-          </header>
-
-          <nav className="bg-white border-b border-gray-200">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex space-x-8">
-                <NavLink to="/" className={navLinkClasses}>
-                  <Home className="w-4 h-4 mr-2" />
-                  Dashboard
-                </NavLink>
-                {isAdmin && (
-                  <>
-                    <NavLink to="/admin/employees" className={navLinkClasses}>
-                      <Users className="w-4 h-4 mr-2" />
-                      Employees
-                    </NavLink>
-                    <NavLink to="/admin/periods" className={navLinkClasses}>
-                      <Target className="w-4 h-4 mr-2" />
-                      Review Cycles
-                    </NavLink>
-                  </>
-                )}
-                {isHR && (
-                  <>
-                    <NavLink to="/hr/assessments" className={navLinkClasses}>
-                      <Award className="w-4 h-4 mr-2" />
-                      Assessments
-                    </NavLink>
-                    <NavLink to="/hr/analytics" className={navLinkClasses}>
-                      <BarChart3 className="w-4 h-4 mr-2" />
-                      Analytics
-                    </NavLink>
-                  </>
-                )}
-                <NavLink to="/settings" className={navLinkClasses}>
-                  <Settings className="w-4 h-4 mr-2" />
-                  Settings
-                </NavLink>
-              </div>
+            <div className="flex items-center space-x-4">
+              <span className="hidden sm:block text-sm opacity-80">
+                {user.full_name}
+              </span>
+              <span className="text-xs bg-teal-500 px-2 py-1 rounded-full">
+                {user.role.toUpperCase()}
+              </span>
+              <button
+                onClick={handleLogout}
+                className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                title="Logout"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
             </div>
-          </nav>
-        </>
-      )}
+          </div>
+        </div>
+      </header>
 
-      <main className="max-w-7xl mx-auto py-8 px-4">
-        <Outlet />
-      </main>
+      <div className="flex pt-16">
+        <SidebarNav user={user} />
+        <main className="flex-1 overflow-y-auto">
+          <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// Reports page
+function ReportsPage() {
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-navy-900">Reports</h1>
+          <p className="text-gray-600 mt-1">Generate and view performance reports</p>
+        </div>
+      </div>
+      <div className="card p-6">
+        <p className="text-gray-500">Reports functionality coming soon.</p>
+      </div>
     </div>
   );
 }
@@ -691,6 +777,7 @@ function Root() {
             <Route path="hr/analytics" element={
               isHR ? <HRAnalytics /> : <Navigate to="/" replace />
             } />
+            <Route path="reports" element={<ReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>

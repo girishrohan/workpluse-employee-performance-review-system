@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react-swc';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
+  root: path.resolve(__dirname, 'src-frontend'),
   plugins: [react()],
   server: {
     port: 3000,
@@ -18,17 +19,13 @@ export default defineConfig({
   },
   build: {
     outDir: path.resolve(__dirname, 'dist'),
+    emptyOutDir: true,
     assetsDir: 'assets',
     sourcemap: false,
-    rollupOptions: {
-      input: {
-        main: path.resolve(__dirname, 'index.html'),
-      },
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-        },
-      },
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src-frontend/src'),
     },
   },
 });
