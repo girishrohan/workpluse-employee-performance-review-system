@@ -9,11 +9,42 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 
-DB_PATH = os.path.join("data", "workpulse.db")
+def resolve_db_path(db_path: str = None) -> str:
+    """
+    Resolves the SQLite database path.
+    Supports local development and serverless environments (Vercel, AWS Lambda).
+    In serverless environments, files outside /tmp are read-only;
+    automatically prepares and returns /tmp/workpulse.db.
+    """
+    if db_path and db_path not in (os.path.join("data", "workpulse.db"), "data/workpulse.db"):
+        return db_path
+
+    env_path = os.environ.get("WORKPULSE_DB_PATH")
+    if env_path:
+        return env_path
+
+    is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+    if is_serverless or not os.access(".", os.W_OK):
+        tmp_db = os.path.join("/tmp", "workpulse.db")
+        bundle_db = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "workpulse.db"))
+        if not os.path.exists(tmp_db):
+            os.makedirs(os.path.dirname(tmp_db), exist_ok=True)
+            if os.path.exists(bundle_db):
+                try:
+                    import shutil
+                    shutil.copy2(bundle_db, tmp_db)
+                except Exception:
+                    pass
+        return tmp_db
+
+    return os.path.join("data", "workpulse.db")
+
+DB_PATH = resolve_db_path()
 
 
-def get_db_connection(db_path=DB_PATH):
+def get_db_connection(db_path=None):
     """Establishes an SQLite connection with row factories and foreign keys enabled."""
+    db_path = resolve_db_path(db_path)
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON;")

@@ -38,7 +38,9 @@ RESET_TOKEN_EXPIRY_HOURS: int = 2
 
 def get_db() -> sqlite3.Connection:
     """Return a sqlite3 connection with Row factory for dict-like access."""
-    conn = sqlite3.connect(DB_PATH)
+    from database.db_manager import resolve_db_path
+    active_path = resolve_db_path(DB_PATH)
+    conn = sqlite3.connect(active_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
