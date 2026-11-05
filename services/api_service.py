@@ -39,6 +39,7 @@ from database.db_manager import (
     init_db,
     resolve_db_path,
 )
+from database.db_adapter import get_db, get_database_provider
 from models.train_model import (
     TARGET_CLASSES,
     train_and_evaluate_all_models,
@@ -206,18 +207,35 @@ def create_app() -> Flask:
         active_db = resolve_db_path()
         db_exists = os.path.exists(active_db)
         is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
-        return jsonify({
+        provider = get_database_provider()
+
+        response = {
             "status": "healthy",
             "service": "WorkPulse — Employee Performance Review System",
             "version": "1.0.0",
             "environment": "vercel_serverless" if is_serverless else "local_standard",
             "database": {
+                "provider": provider,
                 "path": active_db,
                 "exists": db_exists,
                 "size_kb": round(os.path.getsize(active_db) / 1024, 1) if db_exists else 0,
             },
             "timestamp": datetime.utcnow().isoformat() + "Z",
-        })
+        }
+
+        # Add Supabase-specific info if configured
+        if provider == "supabase":
+            try:
+                from database.supabase_client import (
+                    get_supabase_url,
+                    get_supabase_service_key,
+                )
+                response["database"]["supabase_url"] = get_supabase_url()
+                response["database"]["service_key_configured"] = bool(get_supabase_service_key())
+            except Exception:
+                pass
+
+        return jsonify(response)
 
     @app.route("/api/diagnostics", methods=["GET"])
     def diagnostics():
@@ -775,9 +793,11 @@ def create_app() -> Flask:
     @app.route("/", methods=["GET"])
     @app.route("/portal", methods=["GET"])
     def web_portal():
+        from database.db_adapter import get_database_provider
         summary = get_dashboard_summary()
         active_db = resolve_db_path()
         db_size_kb = round(os.path.getsize(active_db) / 1024, 1) if os.path.exists(active_db) else 0
+        db_provider = get_database_provider()
 
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1011,7 +1031,7 @@ def create_app() -> Flask:
             <span class="badge">Vercel Serverless Ready</span>
         </div>
         <div style="font-size: 0.875rem; color: #CBD5E1;">
-            SQLite: <strong>{db_size_kb} KB</strong> · Status: <span style="color:#34D399; font-weight:600;">● Online</span>
+            Backend: <strong>{db_provider}</strong> · Status: <span style="color:#34D399; font-weight:600;">● Online</span>
         </div>
     </header>
 

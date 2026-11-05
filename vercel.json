@@ -1,9 +1,21 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/app.py"
+  "version": 2,
+  "functions": {
+    "wsgi.py": {
+      "runtime": "python3.11",
+      "maxDuration": 30
     }
-  ]
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/wsgi.py"
+    }
+  ],
+  "cleanOutputs": true
 }

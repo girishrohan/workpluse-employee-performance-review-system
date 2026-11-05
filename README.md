@@ -101,7 +101,7 @@ WorkPulse departs from typical generic dashboard templates through an art-direct
 * **Data Visualization:** Plotly Express & Plotly Graph Objects (Custom WorkPulse White Theme)
 * **Backend Logic & Data Processing:** Python 3.10+, Pandas, NumPy
 * **Machine Learning:** Scikit-learn (Decision Tree Classifier, Random Forest Classifier, Preprocessing Pipelines)
-* **Database & Persistence:** SQLite3 (foreign key enforcement, parameterized queries, schema migration)
+* **Database & Persistence:** SQLite3 (foreign key enforcement, parameterized queries, schema migration) **or** Supabase PostgreSQL (production-ready serverless deployment)
 * **Testing:** Python `unittest` test suite (33 automated tests)
 
 ---
@@ -219,3 +219,76 @@ When presenting WorkPulse to evaluators or professors:
    * *How is data persistence handled?* Normalized SQLite with foreign keys, parameterized queries, and automatic migrations.
    * *How is data leakage prevented in ML?* Target labels (`performance_category`) are strictly excluded from input feature vectors, and models are evaluated exclusively on a held-out 20% test split.
    * *How are performance scores calculated?* Weighted sum formula $\text{Overall Score} = \sum (\text{Indicator Score}_i \times \frac{\text{Weight}_i}{100})$, with validation ensuring active weights sum to 100%.
+
+---
+
+## 8. Supabase Production Deployment
+
+WorkPulse supports production deployment to Vercel with Supabase PostgreSQL backend for persistent, serverless data storage.
+
+### Prerequisites
+
+1. **Supabase Project:** Create a project at https://supabase.com
+2. **API Keys:** Get from Supabase Dashboard → Settings → API:
+   - `SUPABASE_URL` - Project URL
+   - `SUPABASE_ANON_KEY` - Anonymous key (client-side)
+   - `SUPABASE_SERVICE_KEY` - Service key (server-side only!)
+
+### Environment Variables for Vercel
+
+Set these in Vercel → Project Settings → Environment Variables:
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `DATABASE_PROVIDER` | `supabase` | Enable Supabase backend |
+| `SUPABASE_URL` | `https://xxx.supabase.co` | Your Supabase project URL |
+| `SUPABASE_ANON_KEY` | `public-anon-key` | Anonymous key for public queries |
+| `SUPABASE_SERVICE_KEY` | `service-role-key` | **Secret key for admin operations** |
+| `SUPABASE_JWT_SECRET` | `your-jwt-secret` | For JWT token validation |
+
+### Database Initialization
+
+Run the seeding script to populate your Supabase database:
+
+```bash
+# Set environment
+export DATABASE_PROVIDER=supabase
+export SUPABASE_URL="https://xxx.supabase.co"
+export SUPABASE_SERVICE_KEY="your-service-key"
+
+# Run seeds
+python -c "from database.seed_supabase import run_all_seeders; run_all_seeders()"
+```
+
+Or use the API:
+
+```bash
+# Seed demo data via API
+curl -X POST https://your-vercel-app.vercel.app/api/demo/seed
+```
+
+### Deployment Flow
+
+1. Push code to GitHub
+2. Import repository in Vercel
+3. Set environment variables (see above)
+4. Vercel auto-builds and deploys
+5. First request initializes the database
+
+### API Endpoints for Supabase Mode
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Health check with DB provider info |
+| `/api/employees` | GET/POST | Employee directory management |
+| `/api/assessments` | GET/POST | Review assessment records |
+| `/api/periods` | GET/POST | Review cycle management |
+| `/api/analytics` | GET | Workforce KPIs and benchmarks |
+| `/api/predictions/predict` | POST | ML inference endpoint |
+
+### Key Architecture Notes
+
+- **Server-Side Only:** Service key is never exposed to browsers
+- **RLS Policies:** Supabase Row Level Security is configured for data isolation
+- **Hybrid Auth:** Falls back to SQLite auth if Supabase not configured
+- **WSGI Ready:** Exports `app`, `application`, `handler` for Vercel serverless

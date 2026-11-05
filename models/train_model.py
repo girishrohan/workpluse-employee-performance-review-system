@@ -8,7 +8,7 @@ import os
 import joblib
 import numpy as np
 import pandas as pd
-from database.db_manager import log_model_run
+from database.db_adapter import get_db
 
 FEATURE_COLS_NUMERIC = [
     'attendance_rate', 'task_completion_rate', 'training_hours',
@@ -357,9 +357,10 @@ def train_and_evaluate_all_models(df, models_dir="models"):
         file_path = os.path.join(models_dir, f"{name.lower().replace(' ', '_')}.pkl")
         joblib.dump(pipeline, file_path)
 
-        # Log run in database
+        # Log run in database (use adapter for cross-backend support)
         try:
-            log_model_run(
+            db = get_db()
+            db.log_model_run(
                 model_name=name,
                 model_version="1.0.0",
                 metrics_dict=metrics,
