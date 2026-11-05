@@ -10,9 +10,9 @@ from typing import Any
 
 import pandas as pd
 
-from database.db_manager import get_db_connection, init_db
+from database.db_manager import get_db_connection, init_db, resolve_db_path
 
-DB_PATH = os.path.join("data", "workpulse.db")
+DB_PATH = resolve_db_path()
 
 DEFAULT_AREAS = (
     ("Attendance", "Reliability and attendance over the review period.", 20),
