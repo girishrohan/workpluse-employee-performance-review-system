@@ -788,6 +788,23 @@ def create_app() -> Flask:
         return jsonify({"success": True, "message": f"Cleared {count} demonstration assessments."})
 
     # -------------------------------------------------------------------------
+    # Auth Verification Endpoint
+    # -------------------------------------------------------------------------
+    @app.route("/api/auth/verify", methods=["GET"])
+    def auth_verify():
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"error": "No valid authorization token"}), 401
+
+        token = auth_header[7:]  # Remove "Bearer " prefix
+        # For demo purposes, accept demo-token or verify JWT in production
+        if token == "demo-token":
+            return jsonify({"user": {"user_id": 1, "email": "admin@workpulse.local", "full_name": "System Administrator", "role": "admin", "employee_id": None}, "role": "admin"})
+
+        # In production, verify JWT token here
+        return jsonify({"error": "Invalid token"}), 401
+
+    # -------------------------------------------------------------------------
     # WorkPulse Web Portal (Root Route for Vercel & Direct Browsing)
     # -------------------------------------------------------------------------
     @app.route("/", methods=["GET"])

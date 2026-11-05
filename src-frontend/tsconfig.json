@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": ["ES2020", "DOM"],
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": ["ESNext", "CommonJS"],
+    "skipLibCheck": true,
+    "moduleResolution": ["Node", "Bundler"],
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src"]
+}

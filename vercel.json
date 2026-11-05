@@ -1,12 +1,21 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "functions": {
-    "wsgi.py": {
-      "runtime": "python3.11",
-      "maxDuration": 30
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    },
+    {
+      "src": "wsgi.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxDuration": 30
+      }
     }
-  },
+  ],
   "routes": [
     {
       "src": "/api/(.*)",
@@ -14,7 +23,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/wsgi.py"
+      "dest": "/dist/index.html"
     }
   ],
   "cleanOutputs": true
