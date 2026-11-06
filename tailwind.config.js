@@ -2,9 +2,9 @@ const path = require('path');
 
 module.exports = {
   content: [
+    path.resolve(__dirname, 'index.html'),
     path.resolve(__dirname, 'src-frontend', 'index.html'),
     path.resolve(__dirname, 'src-frontend', 'src', '**/*.{ts,tsx}'),
-    path.resolve(__dirname, 'index.html'),
   ],
   theme: {
     extend: {
