@@ -412,10 +412,6 @@ def create_app() -> Flask:
                     joining_date=str(data.get("joining_date", date.today().isoformat())),
                     status=str(data.get("status", "Active")),
                     experience_years=float(data.get("experience_years", 2.0)),
-                    attendance_rate=float(data.get("attendance_rate", 85.0)),
-                    task_completion_rate=float(data.get("task_completion_rate", 80.0)),
-                    training_hours=float(data.get("training_hours", 20.0)),
-                    previous_performance=float(data.get("previous_performance", 3.0)),
                 )
                 return jsonify({
                     "success": True,
@@ -469,16 +465,13 @@ def create_app() -> Flask:
             try:
                 update_employee_profile(
                     employee_id=emp_id,
+                    employee_code=str(data.get("employee_code", match.iloc[0]["employee_code"])),
                     employee_name=str(data.get("employee_name", match.iloc[0]["employee_name"])),
                     department=str(data.get("department", match.iloc[0]["department"])),
                     designation=str(data.get("designation", match.iloc[0].get("designation", ""))),
                     joining_date=str(data.get("joining_date", match.iloc[0].get("joining_date", ""))),
                     status=str(data.get("status", match.iloc[0].get("status", "Active"))),
                     experience_years=float(data.get("experience_years", match.iloc[0]["experience_years"])),
-                    attendance_rate=float(data.get("attendance_rate", match.iloc[0].get("attendance_rate", 85.0))),
-                    task_completion_rate=float(data.get("task_completion_rate", match.iloc[0].get("task_completion_rate", 80.0))),
-                    training_hours=float(data.get("training_hours", match.iloc[0].get("training_hours", 20.0))),
-                    previous_performance=float(data.get("previous_performance", match.iloc[0].get("previous_performance", 3.0))),
                 )
                 return jsonify({"success": True, "message": f"Employee {emp_id} updated."})
             except Exception as e:
@@ -581,12 +574,10 @@ def create_app() -> Flask:
                 save_assessment(
                     employee_id=int(data["employee_id"]),
                     period_id=int(data["period_id"]),
-                    reviewer_name=str(data["reviewer_name"]).strip(),
                     assessment_date=str(data.get("assessment_date", date.today().isoformat())),
+                    reviewer=str(data.get("reviewer_name", data.get("reviewer", "Review"))).strip(),
                     scores=scores_dict,
-                    feedback=str(data.get("feedback", "")).strip(),
-                    recommendations=str(data.get("recommendations", "")).strip(),
-                    assessment_id=int(data["assessment_id"]) if data.get("assessment_id") else None,
+                    comments=str(data.get("feedback", "")).strip(),
                 )
                 return jsonify({"success": True, "message": "Assessment recorded successfully."}), 201
             except Exception as e:

@@ -4,11 +4,17 @@ import path from 'path';
 
 export default defineConfig({
   root: path.resolve(__dirname, 'src-frontend'),
-  plugins: [react()],
+  plugins: [
+    react({
+      include: '**/*.{jsx,tsx}',
+      jsxRuntime: 'automatic',
+      jsxImportSource: 'react',
+    }),
+  ],
   server: {
-    port: 3000,
+    port: 3001,
     host: 'localhost',
-    strictPort: true,
+    strictPort: false,
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
