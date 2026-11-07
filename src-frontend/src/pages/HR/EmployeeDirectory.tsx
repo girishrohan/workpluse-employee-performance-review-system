@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Users, Search, Filter, UserCheck, UserX } from 'lucide-react';
 import axios from 'axios';
-import { Employee } from '../../types';
+import { Employee } from '../../types/index';
 
 export default function EmployeeDirectory() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -57,9 +57,9 @@ export default function EmployeeDirectory() {
           className="px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent"
         >
           <option value="All">All Departments</option>
-          {departments.filter(d => d !== 'All').map dept => (
+          {departments.filter(d => d !== 'All').map(dept => (
             <option key={dept} value={dept}>{dept}</option>
-          )}
+          ))}
         </select>
         <select
           value={statusFilter}

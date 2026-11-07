@@ -472,3 +472,17 @@ select {
     display: none;
   }
 }
+
+/* WorkPulse Premium Color Utilities */
+.bg-navy-700 { background-color: #102A43; }
+.bg-navy-800 { background-color: #0C2432; }
+.bg-teal-600 { background-color: #0E7C7B; }
+.text-navy-700 { color: #102A43; }
+.text-teal-600 { color: #0E7C7B; }
+.text-teal-700 { color: #0E685A; }
+.border-teal-200 { border-color: #A3F4ED; }
+.border-teal-400 { border-color: #24D8CA; }
+
+/* Letter spacing utility */
+.letter-space-\[0\.03em\] { letter-spacing: 0.03em; }
+.letter-space-\[0\.08em\] { letter-spacing: 0.08em; }
