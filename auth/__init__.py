@@ -1,1 +1,0 @@
-"""WorkPulse Authentication package."""
