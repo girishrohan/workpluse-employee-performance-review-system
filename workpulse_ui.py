@@ -5,7 +5,7 @@ Enterprise SaaS UI/UX Presentation Engine built with Streamlit & Plotly.
 
 import json
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from html import escape
 from typing import Any
 
@@ -44,6 +44,7 @@ from services.workpulse_service import (
     save_period,
     save_settings,
     seed_demo_review_cycle,
+    update_employee_metrics,
     update_employee_profile,
 )
 from ui_components import (
@@ -69,9 +70,14 @@ from auth.auth_service import (
     get_audit_log,
     update_user,
     create_user,
+    approve_user,
+    delete_user,
+    find_employee_by_code,
+    link_demo_employee_account,
 )
 from auth_views import (
     render_login_page,
+    render_register_page,
     render_change_password_page,
     render_forgot_password_page,
     render_password_reset_page,
@@ -83,6 +89,7 @@ from auth_views import (
 NAV_ITEMS = {
     "Home": "Product Home",
     "Dashboard": "Dashboard",
+    "My Profile": "My Profile",
     "Employees": "Employees",
     "Performance Periods": "Review Cycles",
     "Performance Areas": "KPI Framework",
@@ -96,27 +103,52 @@ NAV_ITEMS = {
 
 # Admin-only navigation items (visible only to Admin role)
 ADMIN_NAV_ITEMS = {
-    "User Management": "Users",
+    "User Management": "User Management",
 }
 
-# Navigation Icon Registry - Maps page names to icon keys
+# Navigation Icon Registry - Maps page names to Material Icon keys
 NAV_ICONS = {
-    "Home": "pulse",
-    "Dashboard": "dashboard",
-    "Employees": "employees",
-    "Performance Periods": "calendar",
-    "Performance Areas": "sliders",
-    "Assessments": "check",
-    "Analytics": "analytics",
-    "Predictions": "sparkles",
-    "Reports": "reports",
-    "Notifications": "notifications",
-    "Settings": "settings",
-    "User Management": "users",
+    "Home": ":material/home:",
+    "Dashboard": ":material/dashboard:",
+    "My Profile": ":material/account_circle:",
+    "Employees": ":material/group:",
+    "Performance Periods": ":material/calendar_month:",
+    "Performance Areas": ":material/tune:",
+    "Assessments": ":material/fact_check:",
+    "Analytics": ":material/insights:",
+    "Predictions": ":material/auto_awesome:",
+    "Reports": ":material/description:",
+    "Notifications": ":material/notifications:",
+    "Settings": ":material/settings:",
+    "User Management": ":material/manage_accounts:",
 }
 
 STATUS_OPTIONS = ("Active", "On leave", "Inactive")
 PERIOD_STATUS_OPTIONS = ("Draft", "Active", "Completed")
+SESSION_MAX_AGE_HOURS = 12
+
+# Authoritative route permissions. Keep this in sync with navigation rendering.
+PAGE_ROLES: dict[str, set[str]] = {
+    "Home": {"admin", "hr", "employee"},
+    "Dashboard": {"admin", "hr", "employee"},
+    "My Profile": {"admin", "hr", "employee"},
+    "Employees": {"admin", "hr"},
+    "Performance Periods": {"admin", "hr"},
+    "Performance Areas": {"admin", "hr"},
+    "Assessments": {"admin", "hr"},
+    "Analytics": {"admin", "hr"},
+    "Predictions": {"admin", "hr"},
+    "Reports": {"admin", "hr"},
+    "Notifications": {"admin", "hr", "employee"},
+    "Settings": {"admin"},
+    "User Management": {"admin"},
+}
+
+
+def can_access_page(page: str, role: str) -> bool:
+    """Return True when the given role may open the given page."""
+    return role.lower() in PAGE_ROLES.get(page, {"admin"})
+
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +211,15 @@ def _section_heading(label: str, caption: str = "") -> None:
     )
 
 
+@st.cache_data
+def _load_styles() -> str:
+    css_path = os.path.join(os.path.dirname(__file__), "styles.css")
+    if os.path.exists(css_path):
+        with open(css_path, encoding="utf-8") as stylesheet:
+            return stylesheet.read()
+    return ""
+
+
 def _configure_page() -> None:
     st.set_page_config(
         page_title="WorkPulse · Employee Performance Review System",
@@ -186,10 +227,9 @@ def _configure_page() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    css_path = os.path.join(os.path.dirname(__file__), "styles.css")
-    if os.path.exists(css_path):
-        with open(css_path, encoding="utf-8") as stylesheet:
-            st.markdown(f"<style>{stylesheet.read()}</style>", unsafe_allow_html=True)
+    css = _load_styles()
+    if css:
+        st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
 
 def _get_category(score: float) -> str:
@@ -243,21 +283,12 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
 
     st.sidebar.markdown('<div class="wp-sidebar-section">NAVIGATION</div>', unsafe_allow_html=True)
 
-    # Role-based navigation access control
-    HR_PAGES = [
-        "Home", "Dashboard", "Employees", "Performance Periods",
-        "Performance Areas", "Assessments", "Analytics", "Predictions",
-        "Reports", "Notifications"
+    # Role-based navigation access control (authoritative map: PAGE_ROLES)
+    allowed_pages = [
+        page
+        for page in list(NAV_ITEMS.keys()) + list(ADMIN_NAV_ITEMS.keys())
+        if can_access_page(page, role)
     ]
-    EMPLOYEE_PAGES = ["Home", "Dashboard", "Employees", "Notifications"]
-
-    if role == "employee":
-        allowed_pages = EMPLOYEE_PAGES
-    elif role == "hr":
-        allowed_pages = HR_PAGES
-    else:
-        # Admin gets all NAV_ITEMS plus User Management
-        allowed_pages = list(NAV_ITEMS.keys()) + list(ADMIN_NAV_ITEMS.keys())
 
     visible_nav = {k: v for k, v in NAV_ITEMS.items() if k in allowed_pages}
     # Also add admin-only nav items
@@ -268,26 +299,32 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
     if "active_page" not in st.session_state or st.session_state.active_page not in allowed_pages:
         st.session_state.active_page = "Dashboard"
 
+    # Keep _nav_radio in sync with active_page if set by another component
+    if st.session_state.active_page in visible_nav:
+        st.session_state["_nav_radio"] = st.session_state.active_page
+
     selected_idx = list(visible_nav.keys()).index(st.session_state.active_page) if st.session_state.active_page in visible_nav else 0
 
-    # Render navigation using radio with custom format_func for icons
+    # Render navigation using radio with clean Material icons
     def nav_formatter(p):
-        icon_key = NAV_ICONS.get(p, "pulse")
-        icon = ICONS.get(icon_key, ICONS["pulse"])
-        return f'{icon} {visible_nav[p]}'
+        icon = NAV_ICONS.get(p, ":material/arrow_right:")
+        label = visible_nav.get(p, p)
+        return f"{icon} {label}"
 
-    selected_page = st.sidebar.radio(
+    def _on_nav_change():
+        chosen = st.session_state.get("_nav_radio")
+        if chosen and chosen in visible_nav:
+            st.session_state.active_page = chosen
+            st.query_params["page"] = chosen
+
+    st.sidebar.radio(
         "Navigation",
         options=list(visible_nav.keys()),
-        index=selected_idx,
         format_func=nav_formatter,
         label_visibility="collapsed",
         key="_nav_radio",
+        on_change=_on_nav_change,
     )
-
-    if selected_page != st.session_state.active_page:
-        st.session_state.active_page = selected_page
-        st.rerun()
 
     role_colors = {"admin": "#168C83", "hr": "#D97706", "employee": "#102A43"}
     role_color = role_colors.get(role, "#64748B")
@@ -320,7 +357,7 @@ def _sidebar(summary: dict[str, int], admin_name: str, workspace_name: str) -> s
     )
 
     # Sign Out Button
-    if st.sidebar.button("Sign Out", use_container_width=True, key="sidebar_logout_btn"):
+    if st.sidebar.button(":material/logout: Sign Out", use_container_width=True, key="sidebar_logout_btn"):
         st.session_state["show_logout_confirm"] = True
         st.rerun()
 
@@ -348,37 +385,31 @@ def _topbar(page: str, unread_count: int, admin_name: str) -> None:
             unsafe_allow_html=True,
         )
     with home_col:
-        pulse_icon = ICONS.get("pulse", "")
-        if st.button(f"{pulse_icon} Home", help="Open public product homepage", use_container_width=True, key="top_home_btn"):
+        if st.button(":material/home: Home", help="Open public product homepage", use_container_width=True, key="top_home_btn"):
             st.session_state.active_page = "Home"
             st.query_params["page"] = "Home"
             st.rerun()
     with notification_col:
-        notif_icon = ICONS.get("notifications", "")
-        notif_label = f"{notif_icon} {unread_count}" if unread_count else f"{notif_icon} Inbox"
+        notif_label = f":material/notifications: {unread_count}" if unread_count else ":material/notifications: Inbox"
         if st.button(notif_label, help="View notifications and pending reviews", use_container_width=True, key="top_notif"):
             st.session_state.active_page = "Notifications"
+            st.query_params["page"] = "Notifications"
             st.rerun()
     with profile_col:
         role_tag = f"({role.upper()})"
-        if role == "admin":
-            settings_icon = ICONS.get("settings", "")
-            if st.button(f"{settings_icon} {first_name} {role_tag}", help="Workspace settings", use_container_width=True, key="top_profile"):
-                st.session_state.active_page = "Settings"
-                st.rerun()
-        else:
-            user_icon = ICONS.get("dashboard", "")
-            st.markdown(
-                f"""
-                <div style="text-align:center; padding:0.4rem 0.5rem; background:#FFFFFF; border:1px solid #E2E8F0; border-radius:6px; font-size:0.75rem; font-weight:600; color:var(--wp-navy); display:flex; align-items:center; justify-content:center; gap:0.35rem;">
-                    {user_icon} {escape(first_name)} <span style="font-size:0.65rem; color:#168C83;">{escape(role_tag)}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        if st.button(
+            f":material/account_circle: {first_name} {role_tag}",
+            help="Open your profile and account details",
+            use_container_width=True,
+            key="top_profile",
+        ):
+            st.session_state.active_page = "My Profile"
+            st.query_params["page"] = "My Profile"
+            st.rerun()
 
     action_map = {
         "Dashboard": ("＋  New Assessment", "Assessments", "show_assessment_form"),
+        "My Profile": ("⌂  Dashboard", "Dashboard", None),
         "Employees": ("＋  Add Employee", "Employees", "show_employee_form"),
         "Performance Periods": ("＋  New Period", "Performance Periods", "show_period_form"),
         "Performance Areas": ("✓  Save Weights", "Performance Areas", "save_areas_requested"),
@@ -417,20 +448,44 @@ def _section_heading(title: str, caption: str | None = None) -> None:
 
 
 def _get_current_employee_record(user: dict, employees: pd.DataFrame) -> pd.Series | None:
+    """Resolve only the employee profile explicitly linked to this account.
+
+    A missing link returns None instead of falling back to another person's
+    record, which would leak another employee's review history.
+    """
     if employees.empty:
         return None
     emp_id = user.get("employee_id")
-    if emp_id:
-        match = employees[employees["employee_id"] == emp_id]
-        if not match.empty:
-            return match.iloc[0]
-    full_name = user.get("full_name", "").strip().lower()
+    if emp_id is not None and not (isinstance(emp_id, float) and np.isnan(emp_id)):
+        try:
+            wanted = int(emp_id)
+        except (TypeError, ValueError):
+            wanted = None
+        if wanted is not None:
+            match = employees[
+                pd.to_numeric(employees["employee_id"], errors="coerce") == wanted
+            ]
+            return match.iloc[0] if not match.empty else None
+    full_name = str(user.get("full_name", "")).strip().lower()
     if full_name:
-        match = employees[employees["employee_name"].str.lower() == full_name]
-        if not match.empty:
-            return match.iloc[0]
-    active = employees[employees["status"] == "Active"]
-    return active.iloc[0] if not active.empty else employees.iloc[0]
+        matches = employees[
+            employees["employee_name"].fillna("").str.lower().str.strip() == full_name
+        ]
+        if len(matches) == 1:
+            return matches.iloc[0]
+    return None
+
+
+def _metric_value(record: Any, key: str) -> float | None:
+    """Return a finite numeric metric value, or None when it is missing."""
+    value = record.get(key) if hasattr(record, "get") else getattr(record, key, None)
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if np.isfinite(number) else None
 
 
 def _employee_dashboard(
@@ -491,16 +546,17 @@ def _employee_dashboard(
     latest_score_disp = f"{latest_score:.1f} / 100" if latest_score is not None else "— / 100"
     latest_cat = _get_category(latest_score) if latest_score is not None else "Pending"
 
-    att_rate = float(emp.get("attendance_rate") or 90.0)
-    task_rate = float(emp.get("task_completion_rate") or 85.0)
-    train_hrs = float(emp.get("training_hours") or 24.0)
+    att_rate = _metric_value(emp, "attendance_rate")
+    task_rate = _metric_value(emp, "task_completion_rate")
+    train_hrs = _metric_value(emp, "training_hours")
+    training_target = 40.0
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         render_metric_card(
             label="Latest Review Score",
             value=latest_score_disp,
-            detail=f"Standing: {latest_cat}" if latest_score else "Awaiting review",
+            detail=f"Standing: {latest_cat}" if latest_score is not None else "Awaiting review",
             icon="target",
             tone="navy",
             trend=None,
@@ -508,24 +564,28 @@ def _employee_dashboard(
     with c2:
         render_metric_card(
             label="Attendance Rate",
-            value=f"{att_rate:.1f}%",
-            detail="Tracked work attendance",
+            value=f"{att_rate:.1f}%" if att_rate is not None else "Not recorded",
+            detail="Tracked work attendance" if att_rate is not None else "No attendance metric on file",
             icon="calendar",
             tone="teal",
         )
     with c3:
         render_metric_card(
             label="Task Completion",
-            value=f"{task_rate:.1f}%",
-            detail="Deliverables completed on-time",
+            value=f"{task_rate:.1f}%" if task_rate is not None else "Not recorded",
+            detail="Deliverables completed on-time" if task_rate is not None else "No delivery metric on file",
             icon="assessments",
             tone="green",
         )
     with c4:
         render_metric_card(
             label="Training Completed",
-            value=f"{train_hrs:.0f} hrs",
-            detail="Professional development logged",
+            value=f"{train_hrs:.0f} hrs" if train_hrs is not None else "Not recorded",
+            detail=(
+                f"{min(100, train_hrs / training_target * 100):.0f}% of {training_target:.0f}h annual target"
+                if train_hrs is not None
+                else "No training hours logged"
+            ),
             icon="sparkles",
             tone="amber",
         )
@@ -534,6 +594,75 @@ def _employee_dashboard(
 
     _section_heading("Your Profile Dossier", "Holistic indicators and professional milestones")
     render_employee_profile_card(emp.to_dict())
+
+    _section_heading("Development Focus", "Personalised growth signals drawn from your recorded indicators")
+    focus_left, focus_right = st.columns(2, gap="large")
+    with focus_left:
+        training_pct = (
+            min(100.0, train_hrs / training_target * 100) if train_hrs is not None else 0.0
+        )
+        training_text = (
+            f"{train_hrs:.0f} of {training_target:.0f} recommended annual hours"
+            if train_hrs is not None
+            else "Training hours have not been logged yet"
+        )
+        st.markdown(
+            f"""
+            <div class="wp-card" style="margin-bottom:0;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                    <strong style="color:var(--wp-navy); font-size:0.9375rem;">Learning Progress</strong>
+                    <span style="font-size:0.75rem; font-weight:700; color:var(--wp-teal);">{training_pct:.0f}%</span>
+                </div>
+                <div class="wp-progress-wrap" style="height:8px;">
+                    <div class="wp-progress-bar" style="width:{training_pct:.0f}%;"></div>
+                </div>
+                <p style="font-size:0.8125rem; color:var(--wp-text-secondary); margin:0.6rem 0 0 0;">{escape(training_text)}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if train_hrs is not None:
+            remaining = max(0.0, training_target - train_hrs)
+            st.caption(
+                f"{remaining:.0f} hours remain to reach the recommended annual development target."
+                if remaining
+                else "Annual development target reached — excellent commitment to growth."
+            )
+    with focus_right:
+        focus_points: list[str] = []
+        if not emp_assessments.empty and "scores_json" in emp_assessments.columns:
+            try:
+                latest_scores = json.loads(str(emp_assessments.iloc[0]["scores_json"]))
+                ordered = sorted(
+                    ((k, float(v)) for k, v in latest_scores.items()),
+                    key=lambda item: item[1],
+                )
+                for indicator, score in ordered[:2]:
+                    focus_points.append(
+                        f"<strong>{escape(indicator)}</strong> scored {score:.1f}/100 — agree a focused development plan with your manager."
+                    )
+            except (ValueError, TypeError, json.JSONDecodeError):
+                pass
+        if att_rate is not None and att_rate < 90:
+            focus_points.append(
+                f"Attendance is {att_rate:.1f}%. Discuss any workplace barriers and agree a sustainable schedule."
+            )
+        if task_rate is not None and task_rate < 85:
+            focus_points.append(
+                f"Task completion is {task_rate:.1f}%. Review workload and priority-setting with your manager."
+            )
+        if not focus_points:
+            focus_points.append(
+                "No improvement signals are recorded yet. Your development focus will update after your next review."
+            )
+        st.markdown(
+            '<div class="wp-card" style="margin-bottom:0;">'
+            '<strong style="color:var(--wp-navy); font-size:0.9375rem;">Suggested Focus Areas</strong>'
+            "<ul style='margin:0.6rem 0 0 1rem; padding:0; font-size:0.8125rem; color:var(--wp-text-secondary); line-height:1.6;'>"
+            + "".join(f"<li style='margin-bottom:0.35rem;'>{point}</li>" for point in focus_points[:3])
+            + "</ul></div>",
+            unsafe_allow_html=True,
+        )
 
     left, right = st.columns(2, gap="large")
     with left:
@@ -606,19 +735,322 @@ def _employee_dashboard(
 # =============================================================================
 # 1. DASHBOARD PAGE
 # =============================================================================
+def _my_profile_page(employees: pd.DataFrame, assessments: pd.DataFrame) -> None:
+    """Self-service account and profile page. Never exposes another employee."""
+    user = st.session_state.get("user", {})
+    role = str(user.get("role", "employee")).lower()
+    full_name = str(user.get("full_name") or "User")
+    email = str(user.get("email") or "—")
+    emp = _get_current_employee_record(user, employees)
+
+    render_page_heading(
+        title="My Profile",
+        subtitle="Your account details, linked employee dossier, and personal review history.",
+        breadcrumb="PERSONAL WORKSPACE",
+        badge=role.upper(),
+    )
+
+    role_note = {
+        "admin": "System administrator account. Workspace settings and user access are managed from the administration pages.",
+        "hr": "HR manager account. Employee records and review workflows are available from the navigation.",
+        "employee": "Employee account. You can only view your own dossier, evaluations, and notifications.",
+    }.get(role, "")
+
+    st.markdown(
+        f"""
+        <div class="wp-card">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap;">
+                <div>
+                    <div style="font-size:0.6875rem; font-weight:700; color:var(--wp-teal); letter-spacing:0.08em; text-transform:uppercase;">SIGNED-IN ACCOUNT</div>
+                    <h2 style="margin:0.25rem 0 0.25rem 0; font-size:1.375rem; color:var(--wp-navy);">{escape(full_name)}</h2>
+                    <div style="font-size:0.875rem; color:var(--wp-text-secondary);">{escape(email)} · {role.upper()}</div>
+                </div>
+                <div style="text-align:right; font-size:0.8125rem; color:var(--wp-text-secondary);">
+                    <div><strong>Linked employee ID:</strong> {escape(str(user.get('employee_id') or 'Not linked'))}</div>
+                </div>
+            </div>
+            <p style="margin:0.85rem 0 0 0; font-size:0.8125rem; color:var(--wp-text-secondary);">{escape(role_note)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if emp is None:
+        if role == "employee":
+            st.warning(
+                "Your account is not yet linked to an employee profile. "
+                "Contact your HR administrator so they can connect your account to your personnel record."
+            )
+        else:
+            st.info(
+                "This account is not linked to an employee profile. That is expected for administrative accounts."
+            )
+        return
+
+    _section_heading("My Employee Dossier", "Operational indicators maintained by HR")
+    render_employee_profile_card(emp.to_dict())
+
+    _section_heading("My Review History", "Assessments recorded against your profile")
+    emp_assessments = (
+        assessments[assessments["employee_id"] == int(emp["employee_id"])]
+        if not assessments.empty
+        else pd.DataFrame()
+    )
+    if emp_assessments.empty:
+        render_empty_state(
+            "No Reviews Recorded",
+            "Your assessment history will appear here after your manager completes a review.",
+        )
+        return
+
+    history = emp_assessments.copy()
+    history["Outcome"] = history["overall_score"].map(_get_category)
+    st.dataframe(
+        history[
+            ["period_name", "assessment_date", "reviewer", "overall_score", "Outcome", "comments"]
+        ].rename(
+            columns={
+                "period_name": "Review Cycle",
+                "assessment_date": "Date",
+                "reviewer": "Reviewer",
+                "overall_score": "Score",
+                "Outcome": "Tier",
+                "comments": "Manager Feedback & Guidance",
+            }
+        ),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+
 def _dashboard(
     employees: pd.DataFrame,
     assessments: pd.DataFrame,
     summary: dict[str, int],
     periods: pd.DataFrame,
 ) -> None:
-    user = st.session_state.get("user", {})
-    role = user.get("role", "admin").lower()
-
+    role = st.session_state.get("user", {}).get("role", "employee").lower()
     if role == "employee":
-        _employee_dashboard(employees, assessments, periods, user)
-        return
+        _employee_dashboard(employees, assessments, periods, st.session_state.get("user", {}))
+    elif role == "admin":
+        _admin_dashboard(employees, assessments, summary, periods)
+    else:
+        _hr_dashboard(employees, assessments, summary, periods)
 
+
+def _admin_dashboard(
+    employees: pd.DataFrame,
+    assessments: pd.DataFrame,
+    summary: dict[str, int],
+    periods: pd.DataFrame,
+) -> None:
+    """Administrator cockpit: access governance, data readiness, and system health."""
+    users = get_all_users()
+    pending_users = [user for user in users if not user.get("is_active")]
+    active_users = [user for user in users if user.get("is_active")]
+    admin_users = [user for user in active_users if user.get("role") == "admin"]
+
+    active_period = periods[periods["status"] == "Active"] if not periods.empty else pd.DataFrame()
+    if not active_period.empty:
+        current = active_period.iloc[0]
+        current_assessments = (
+            assessments[assessments["period_id"] == current["period_id"]]
+            if not assessments.empty
+            else pd.DataFrame()
+        )
+        active_employee_count = int((employees["status"] == "Active").sum()) if not employees.empty else 0
+        completed = len(current_assessments)
+        render_cycle_banner(
+            cycle_name=current["name"],
+            status="Active",
+            due_date=str(current["end_date"]),
+            progress_pct=(completed / active_employee_count * 100) if active_employee_count else 0.0,
+            total_reviews=completed,
+            pending_reviews=max(0, active_employee_count - completed),
+        )
+
+    avg_score = float(assessments["overall_score"].mean()) if not assessments.empty else None
+    active_employee_count = int((employees["status"] == "Active").sum()) if not employees.empty else 0
+    reviewed_ids = (
+        set(pd.to_numeric(assessments["employee_id"], errors="coerce").dropna().astype(int))
+        if not assessments.empty
+        else set()
+    )
+    active_ids = (
+        set(pd.to_numeric(employees.loc[employees["status"] == "Active", "employee_id"], errors="coerce").dropna().astype(int))
+        if not employees.empty
+        else set()
+    )
+    unreviewed_count = len(active_ids - reviewed_ids)
+    coverage = (
+        (len(active_ids & reviewed_ids) / len(active_ids) * 100) if active_ids else 0.0
+    )
+
+    metric_columns = ["attendance_rate", "task_completion_rate", "training_hours", "previous_performance"]
+    available_metric_columns = [column for column in metric_columns if column in employees.columns]
+    missing_metrics = (
+        int(employees[available_metric_columns].isna().any(axis=1).sum())
+        if available_metric_columns and not employees.empty
+        else 0
+    )
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        render_metric_card(
+            label="Workforce Mean Score",
+            value=f"{avg_score:.1f} / 100" if avg_score is not None else "— / 100",
+            detail="Overall review benchmark" if avg_score is not None else "No reviews recorded yet",
+            icon="target",
+            tone="navy",
+        )
+    with col2:
+        render_metric_card(
+            label="Active Workforce",
+            value=f"{active_employee_count:,}",
+            detail=f"{summary.get('total_employees', 0):,} total employee profiles",
+            icon="employees",
+            tone="teal",
+        )
+    with col3:
+        render_metric_card(
+            label="Review Coverage",
+            value=f"{coverage:.0f}%",
+            detail=f"{unreviewed_count:,} active employees not yet reviewed",
+            icon="assessments",
+            tone="green",
+        )
+    with col4:
+        render_metric_card(
+            label="Pending Access Requests",
+            value=f"{len(pending_users):,}",
+            detail="Accounts awaiting administrator approval",
+            icon="user-check",
+            tone="amber",
+        )
+
+    st.write("")
+    _section_heading(
+        "Governance & Data Readiness",
+        "Access control, evidence quality, and operational follow-ups that need an administrator",
+    )
+    left, right = st.columns(2, gap="large")
+
+    with left:
+        pending_rows = "".join(
+            f"<li style='margin-bottom:0.3rem;'>{escape(str(user.get('full_name') or user.get('email')))} "
+            f"<span style='color:var(--wp-text-muted);'>({escape(str(user.get('email')))})</span></li>"
+            for user in pending_users[:4]
+        )
+        st.markdown(
+            f"""
+            <div class="wp-card" style="margin-bottom:0.75rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong style="color:var(--wp-navy); font-size:0.9375rem;">Account Governance</strong>
+                    <span class="wp-badge wp-badge-active">{len(active_users):,} active accounts</span>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:0.5rem; margin-top:0.85rem; text-align:center;">
+                    <div style="background:var(--wp-bg); border-radius:6px; padding:0.5rem;">
+                        <div style="font-size:0.6875rem; color:var(--wp-text-secondary); text-transform:uppercase;">Admins</div>
+                        <div style="font-size:1.125rem; font-weight:700; color:var(--wp-navy);">{len(admin_users)}</div>
+                    </div>
+                    <div style="background:var(--wp-bg); border-radius:6px; padding:0.5rem;">
+                        <div style="font-size:0.6875rem; color:var(--wp-text-secondary); text-transform:uppercase;">HR</div>
+                        <div style="font-size:1.125rem; font-weight:700; color:var(--wp-navy);">{sum(1 for u in active_users if u.get('role') == 'hr')}</div>
+                    </div>
+                    <div style="background:var(--wp-bg); border-radius:6px; padding:0.5rem;">
+                        <div style="font-size:0.6875rem; color:var(--wp-text-secondary); text-transform:uppercase;">Staff</div>
+                        <div style="font-size:1.125rem; font-weight:700; color:var(--wp-navy);">{sum(1 for u in active_users if u.get('role') == 'employee')}</div>
+                    </div>
+                </div>
+                <div style="margin-top:0.85rem; font-size:0.8125rem; color:var(--wp-text-secondary);">
+                    <strong style="color:var(--wp-navy);">Pending approvals:</strong>
+                    {f"<ul style='margin:0.35rem 0 0 1rem; padding:0;'>{pending_rows}</ul>" if pending_rows else "None — all access requests are processed."}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Open User Management", use_container_width=True, key="admin_goto_users"):
+            st.session_state.active_page = "User Management"
+            st.query_params["page"] = "User Management"
+            st.rerun()
+
+    with right:
+        st.markdown(
+            f"""
+            <div class="wp-card" style="margin-bottom:0.75rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong style="color:var(--wp-navy); font-size:0.9375rem;">Review & Data Readiness</strong>
+                    <span style="font-size:0.75rem; font-weight:700; color:var(--wp-teal);">{coverage:.0f}% COVERAGE</span>
+                </div>
+                <div class="wp-progress-wrap" style="height:8px; margin:0.6rem 0 0.85rem 0;">
+                    <div class="wp-progress-bar" style="width:{coverage:.0f}%;"></div>
+                </div>
+                <div style="font-size:0.8125rem; color:var(--wp-text-secondary); line-height:1.7;">
+                    <div><strong style="color:var(--wp-navy);">Unreviewed active employees:</strong> {unreviewed_count:,}</div>
+                    <div><strong style="color:var(--wp-navy);">Profiles missing operational metrics:</strong> {missing_metrics:,}</div>
+                    <div><strong style="color:var(--wp-navy);">Demo records in dataset:</strong> {summary.get('demo_employees', 0):,}</div>
+                </div>
+                <p style="margin:0.75rem 0 0 0; font-size:0.75rem; color:var(--wp-text-muted);">
+                    Operational metrics feed the ML feature set. Missing metrics reduce prediction quality; record them from the employee dossier.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Open Employee Directory", use_container_width=True, key="admin_goto_employees"):
+            st.session_state.active_page = "Employees"
+            st.query_params["page"] = "Employees"
+            st.rerun()
+
+    _section_heading("Recent Audit Activity", "Security-relevant account and configuration events")
+    audit_entries = get_audit_log(limit=10)
+    if audit_entries:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Time": str(entry.get("performed_at", ""))[:19],
+                        "Action": entry.get("action", ""),
+                        "Actor": entry.get("performed_by_email") or "System",
+                        "Detail": entry.get("detail", ""),
+                    }
+                    for entry in audit_entries
+                ]
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+    else:
+        render_empty_state("No Audit Activity", "Account and configuration events will be recorded here.")
+
+    _section_heading("Administration Launchpad")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("＋  Add Employee", use_container_width=True, key="admin_add_emp"):
+            st.session_state.active_page = "Employees"
+            st.session_state.show_employee_form = True
+            st.rerun()
+    with c2:
+        if st.button("👥  Manage Access", use_container_width=True, key="admin_manage_access"):
+            st.session_state.active_page = "User Management"
+            st.rerun()
+    with c3:
+        if st.button("⌁  ML Predictions", use_container_width=True, key="admin_predictions"):
+            st.session_state.active_page = "Predictions"
+            st.rerun()
+    with c4:
+        if st.button("▤  Executive Report", use_container_width=True, key="admin_report"):
+            st.session_state.active_page = "Reports"
+            st.rerun()
+
+
+def _hr_dashboard(
+    employees: pd.DataFrame,
+    assessments: pd.DataFrame,
+    summary: dict[str, int],
+    periods: pd.DataFrame,
+) -> None:
     # 1. Active Period Progress Banner
     active_period = periods[periods["status"] == "Active"] if not periods.empty else pd.DataFrame()
     if not active_period.empty:
@@ -636,27 +1068,26 @@ def _dashboard(
             pending_reviews=max(0, active_emp_count - comp_count),
         )
 
-    # 2. Demonstration Callout if empty assessments
+    # 2. Empty-state guidance (no fabricated data or demo seeding from HR view)
     if assessments.empty:
         st.markdown(
             f"""
-            <div style="background:#FFFFFF; border:1px solid var(--wp-border); border-left:4px solid var(--wp-teal); border-radius:var(--wp-radius-md); padding:1rem 1.25rem; margin-bottom:1.25rem; display:flex; align-items:center; justify-content:space-between;">
-                <div>
-                    <strong style="color:var(--wp-navy); font-size:0.9375rem;">Welcome to WorkPulse!</strong>
-                    <div style="color:var(--wp-text-secondary); font-size:0.8125rem; margin-top:0.2rem;">
-                        The database has {summary.get('total_employees', 0):,} registered employees. To preview the populated performance analytics, distribution charts, and audit reports for demonstration or viva evaluation, load the demo review cycle.
-                    </div>
+            <div style="background:#FFFFFF; border:1px solid var(--wp-border); border-left:4px solid var(--wp-teal); border-radius:var(--wp-radius-md); padding:1rem 1.25rem; margin-bottom:1.25rem;">
+                <strong style="color:var(--wp-navy); font-size:0.9375rem;">No assessments recorded yet</strong>
+                <div style="color:var(--wp-text-secondary); font-size:0.8125rem; margin-top:0.2rem;">
+                    The workspace has {summary.get('total_employees', 0):,} employee profiles.
+                    Start a review cycle and complete the first assessment to populate analytics and executive reports.
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
         c1, c2, _ = st.columns([2.2, 2.2, 5.6])
-        if c1.button("⚡ Load Demo Review Cycle", type="primary", use_container_width=True):
-            seed_demo_review_cycle()
-            st.success("Demonstration review cycle and assessments loaded.")
+        if c1.button("＋ Conduct Assessment", type="primary", use_container_width=True, key="hr_empty_assess"):
+            st.session_state.active_page = "Assessments"
+            st.session_state.show_assessment_form = True
             st.rerun()
-        if c2.button("＋ Add Employee Profile", use_container_width=True):
+        if c2.button("＋ Add Employee Profile", use_container_width=True, key="hr_empty_add"):
             st.session_state.active_page = "Employees"
             st.session_state.show_employee_form = True
             st.rerun()
@@ -880,6 +1311,10 @@ def _dashboard(
 # 2. EMPLOYEES DIRECTORY & PROFILE DOSSIER
 # =============================================================================
 def _employees_page(employees: pd.DataFrame, assessments: pd.DataFrame) -> None:
+    if not require_role("hr", "admin"):
+        _unauthorized_alert()
+        return
+
     render_page_heading(
         title="Employee Directory",
         subtitle="Manage employee records, review eligibility, and historical performance profiles.",
@@ -1032,16 +1467,65 @@ def _employees_page(employees: pd.DataFrame, assessments: pd.DataFrame) -> None:
             except Exception as error:
                 st.error(f"Could not update profile: {error}")
 
-    with st.expander("Delete Employee Profile"):
-        st.warning(f"Deleting **{selected_emp.employee_name}** ({selected_emp.employee_code}) will permanently remove their profile and all linked assessments.")
-        confirmed = st.checkbox("I confirm permanent deletion of this employee record.", key="confirm_delete_emp")
-        if st.button("Delete Employee", type="secondary", disabled=not confirmed):
+    with st.expander("Update Operational Metrics (ML inputs)"):
+        st.caption(
+            "Attendance, task completion, training hours, and prior rating are current operational "
+            "measurements used by the predictive models. Saving here does not create a review score."
+        )
+        att_value = _metric_value(selected_emp, "attendance_rate")
+        task_value = _metric_value(selected_emp, "task_completion_rate")
+        train_value = _metric_value(selected_emp, "training_hours")
+        prev_value = _metric_value(selected_emp, "previous_performance")
+        if all(value is None for value in (att_value, task_value, train_value, prev_value)):
+            st.info("No operational metrics are recorded for this employee yet. Enter the first measured values below.")
+        with st.form(f"metrics_form_{selected_emp.employee_id}"):
+            m1, m2 = st.columns(2)
+            new_att = m1.number_input(
+                "Attendance Rate (%)", 0.0, 100.0,
+                value=float(att_value) if att_value is not None else 0.0, step=0.5,
+            )
+            new_task = m2.number_input(
+                "Task Completion Rate (%)", 0.0, 100.0,
+                value=float(task_value) if task_value is not None else 0.0, step=0.5,
+            )
+            m3, m4 = st.columns(2)
+            new_train = m3.number_input(
+                "Training Hours", 0.0, 1000.0,
+                value=float(train_value) if train_value is not None else 0.0, step=1.0,
+            )
+            new_prev = m4.slider(
+                "Previous Performance Rating (1–5)", 1.0, 5.0,
+                value=float(prev_value) if prev_value is not None else 3.0, step=0.1,
+            )
+            metrics_saved = st.form_submit_button("Save Operational Metrics", type="primary")
+        if metrics_saved:
             try:
-                delete_employee(selected_emp.employee_id)
-                st.success("Employee record deleted.")
+                update_employee_metrics(
+                    selected_emp.employee_id, new_att, new_task, new_train, new_prev
+                )
+                st.success("Operational metrics updated. Predictive models will use the new values.")
                 st.rerun()
             except Exception as error:
-                st.error(f"Could not delete: {error}")
+                st.error(f"Could not update metrics: {error}")
+
+    if require_role("admin"):
+        with st.expander("Delete Employee Profile"):
+            st.warning(f"Deleting **{selected_emp.employee_name}** ({selected_emp.employee_code}) will permanently remove their profile and all linked assessments.")
+            confirmed = st.checkbox("I confirm permanent deletion of this employee record.", key="confirm_delete_emp")
+            if st.button("Delete Employee", type="secondary", disabled=not confirmed):
+                try:
+                    delete_employee(selected_emp.employee_id)
+                    log_audit(
+                        st.session_state.get("user", {}).get("user_id"),
+                        "DELETE_EMPLOYEE",
+                        "employee",
+                        int(selected_emp.employee_id),
+                        f"Deleted {selected_emp.employee_name} ({selected_emp.employee_code})",
+                    )
+                    st.success("Employee record deleted.")
+                    st.rerun()
+                except Exception as error:
+                    st.error(f"Could not delete: {error}")
 
 
 # =============================================================================
@@ -1713,7 +2197,85 @@ def _reports_page(assessments: pd.DataFrame) -> None:
 # =============================================================================
 # 9. NOTIFICATIONS & INBOX
 # =============================================================================
-def _notifications_page() -> None:
+def _notifications_page(employees: pd.DataFrame, assessments: pd.DataFrame) -> None:
+    user = st.session_state.get("user", {})
+    role = str(user.get("role", "employee")).lower()
+
+    if role == "employee":
+        render_page_heading(
+            title="My Review Updates",
+            subtitle="Feedback, cycle milestones, and announcements relevant to your employee profile.",
+            breadcrumb="PERSONAL INBOX",
+        )
+        emp = _get_current_employee_record(user, employees)
+        if emp is None:
+            st.warning(
+                "Your account is not linked to an employee profile yet. "
+                "Ask HR to connect your account to see personal review updates."
+            )
+            return
+
+        emp_name = str(emp["employee_name"])
+        emp_assessments = (
+            assessments[assessments["employee_id"] == int(emp["employee_id"])]
+            if not assessments.empty
+            else pd.DataFrame()
+        )
+
+        _section_heading("Review Feedback", "Manager guidance recorded against your profile")
+        if emp_assessments.empty:
+            render_empty_state(
+                "No Review Feedback Yet",
+                "Feedback from completed assessments will appear here.",
+            )
+        else:
+            for row in emp_assessments.itertuples(index=False):
+                st.markdown(
+                    f"""
+                    <div class="wp-card" style="margin-bottom:0.75rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                            <strong style="color:var(--wp-navy);">{escape(str(row.period_name))}</strong>
+                            <span>{render_status_badge(_get_category(float(row.overall_score)))}</span>
+                        </div>
+                        <div style="font-size:0.75rem; color:var(--wp-text-muted); margin-top:0.2rem;">
+                            {escape(str(row.assessment_date))} · Reviewer: {escape(str(row.reviewer))} · Score: {float(row.overall_score):.1f}/100
+                        </div>
+                        <p style="margin:0.5rem 0 0 0; color:var(--wp-text-secondary); font-size:0.875rem;">
+                            {escape(str(row.comments or 'No written feedback was attached to this review.'))}
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+        _section_heading("Workspace Announcements", "System alerts that mention your profile")
+        notifications = get_notifications()
+        personal = (
+            notifications[
+                notifications["message"].fillna("").str.contains(emp_name, case=False, regex=False)
+                | notifications["title"].fillna("").str.contains(emp_name, case=False, regex=False)
+            ]
+            if not notifications.empty
+            else pd.DataFrame()
+        )
+        if personal.empty:
+            render_empty_state("No Personal Announcements", "Relevant workspace alerts will appear here.")
+        else:
+            for notif in personal.head(10).itertuples(index=False):
+                st.markdown(
+                    f"""
+                    <div class="wp-card" style="margin-bottom:0.75rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <strong style="color:var(--wp-navy);">{escape(str(notif.title))}</strong>
+                            <span style="font-size:0.75rem; color:var(--wp-text-muted);">{escape(str(notif.created_at))}</span>
+                        </div>
+                        <p style="margin:0.35rem 0 0 0; color:var(--wp-text-secondary); font-size:0.875rem;">{escape(str(notif.message))}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        return
+
     render_page_heading(
         title="Notifications & Task Queue",
         subtitle="Review workflow alerts, upcoming cycle deadlines, and unassessed employee queues.",
@@ -1759,16 +2321,14 @@ def _notifications_page() -> None:
         render_empty_state("No Notification History", "System events and review cycle milestones will appear here.")
     else:
         for notif in notifications.itertuples(index=False):
-            is_unread = pd.isna(notif.read_at)
-            status_chip = render_status_badge("Needs Support" if is_unread else "Completed")
             st.markdown(
                 f"""
                 <div class="wp-card" style="margin-bottom:0.75rem;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <strong style="color:var(--wp-navy);">{escape(notif.title)}</strong>
+                        <strong style="color:var(--wp-navy);">{escape(str(notif.title))}</strong>
                         <span style="font-size:0.75rem; color:var(--wp-text-muted);">{escape(str(notif.created_at))}</span>
                     </div>
-                    <p style="margin:0.35rem 0 0 0; color:var(--wp-text-secondary); font-size:0.875rem;">{escape(notif.message)}</p>
+                    <p style="margin:0.35rem 0 0 0; color:var(--wp-text-secondary); font-size:0.875rem;">{escape(str(notif.message))}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1779,128 +2339,265 @@ def _notifications_page() -> None:
 # 10. SETTINGS & DEMONSTRATION SUITE
 # =============================================================================
 def _user_management_page() -> None:
-    """Admin-only page for user management."""
+    """Admin-only page for account access, role management, and audit review."""
     if not require_role("admin"):
         _unauthorized_alert()
         return
 
+    current_user = st.session_state.get("user", {})
+    current_user_id = current_user.get("user_id")
+
     render_page_heading(
         title="User Management",
-        subtitle="Manage user accounts, roles, and system access.",
+        subtitle="Approve access requests, assign roles, and review account security activity.",
         breadcrumb="ADMINISTRATION",
     )
 
-    # Get all users
     users = get_all_users()
+    pending_users = [user for user in users if not user.get("is_active")]
+    active_users = [user for user in users if user.get("is_active")]
 
-    # User table view
-    st.markdown("**Active Users**")
-    if users:
-        user_df = pd.DataFrame([
-            {
-                "User": u.get("full_name", "—"),
-                "Email": u.get("email", "—"),
-                "Role": (u.get("role", "employee").upper() or "EMPLOYEE"),
-                "Status": "Active" if u.get("is_active") else "Inactive",
-                "Last Login": u.get("last_login", "Never")[:19] if u.get("last_login") else "Never",
-            }
-            for u in users
-        ])
-        st.dataframe(user_df, use_container_width=True, hide_index=True)
-
-        # Action column for each user
-        st.markdown("")
-        st.markdown("**User Actions**")
-        for user in users:
-            with st.expander(f"{user.get('full_name', 'User')} ({user.get('email', '')})", expanded=False):
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.markdown(f"**Role:** {user.get('role', 'employee').upper()}")
-                    st.markdown(f"**Status:** {'Active' if user.get('is_active') else 'Inactive'}")
-                    st.markdown(f"**Employee ID:** {user.get('employee_id', 'Not linked')}")
-                with col2:
-                    if st.button("Edit", key=f"edit_{user['user_id']}"):
-                        st.session_state.edit_user_id = user['user_id']
-
-                        # Inline edit form
-                        with st.form(f"edit_form_{user['user_id']}", clear_on_submit=True):
-                            new_name = st.text_input("Full Name", value=user.get('full_name', ''))
-                            new_role = st.selectbox(
-                                "Role",
-                                options=["employee", "hr", "admin"],
-                                index=["employee", "hr", "admin"].index(user.get('role', 'employee'))
-                            )
-                            new_status = st.checkbox("Active", value=user.get('is_active', True))
-
-                            if st.form_submit_button("Update User"):
-                                if update_user(
-                                    user['user_id'],
-                                    full_name=new_name,
-                                    role=new_role,
-                                    is_active=new_status
-                                ):
-                                    st.success("User updated successfully.")
-                                    st.rerun()
-                                else:
-                                    st.error("Failed to update user.")
-
-                        break
+    # ------------------------------------------------------------------
+    # Pending registration approvals
+    # ------------------------------------------------------------------
+    _section_heading(
+        "Pending Access Requests",
+        "Self-service registrations stay inactive until an administrator approves them",
+    )
+    if not pending_users:
+        st.success("No pending access requests. All registered accounts have been processed.")
     else:
-        st.info("No users found in the system.")
+        for pending in pending_users:
+            p1, p2, p3 = st.columns([5, 1.1, 1.1], vertical_alignment="center")
+            with p1:
+                st.markdown(
+                    f"""
+                    <div style="padding:0.35rem 0;">
+                        <strong style="color:var(--wp-navy);">{escape(str(pending.get('full_name') or 'Unnamed'))}</strong>
+                        <span style="font-size:0.8125rem; color:var(--wp-text-secondary);"> · {escape(str(pending.get('email')))}</span>
+                        <div style="font-size:0.72rem; color:var(--wp-text-muted); margin-top:0.15rem;">
+                            Requested {escape(str(pending.get('created_at') or '—'))[:19][:19]}
+                            · Linked employee: {escape(str(pending.get('employee_name') or 'Not linked'))}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            with p2:
+                if st.button("Approve", type="primary", use_container_width=True, key=f"approve_{pending['user_id']}"):
+                    if approve_user(int(pending["user_id"]), current_user_id):
+                        st.success(f"Approved access for {pending.get('email')}.")
+                        st.rerun()
+                    else:
+                        st.error("Could not approve this account.")
+            with p3:
+                if st.button("Reject", use_container_width=True, key=f"reject_{pending['user_id']}"):
+                    if delete_user(int(pending["user_id"]), current_user_id):
+                        st.success(f"Rejected and removed {pending.get('email')}.")
+                        st.rerun()
+                    else:
+                        st.error("Could not remove this request.")
 
-    # Audit Log Section
-    st.markdown("---")
-    _section_heading("Recent Audit Activity")
-    audit_entries = get_audit_log(limit=50)
+    # ------------------------------------------------------------------
+    # Account directory
+    # ------------------------------------------------------------------
+    _section_heading("Account Directory", "Active identities with workspace access")
+    if active_users:
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "User": user.get("full_name", "—"),
+                        "Email": user.get("email", "—"),
+                        "Role": str(user.get("role", "employee")).upper(),
+                        "Linked Employee": user.get("employee_name") or "Not linked",
+                        "Last Login": str(user.get("last_login") or "Never")[:19],
+                    }
+                    for user in active_users
+                ]
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("No active user accounts found.")
+
+    # ------------------------------------------------------------------
+    # Manage one account at a time (avoids nested widgets in loops)
+    # ------------------------------------------------------------------
+    _section_heading("Manage Account", "Edit identity, role, and activation state")
+    if active_users:
+        account_options = {
+            f"{user.get('full_name', 'User')} · {user.get('email', '')} ({str(user.get('role', '')).upper()})": user
+            for user in active_users
+        }
+        selected_label = st.selectbox("Select account", list(account_options.keys()), key="admin_account_select")
+        selected = account_options[selected_label]
+        selected_id = int(selected["user_id"])
+        is_self = selected_id == current_user_id
+        role_options = ["employee", "hr", "admin"]
+        current_role = str(selected.get("role", "employee")).lower()
+        role_index = role_options.index(current_role) if current_role in role_options else 0
+
+        with st.form(f"edit_user_form_{selected_id}"):
+            e1, e2 = st.columns(2)
+            edit_name = e1.text_input("Full Name", value=str(selected.get("full_name") or ""))
+            edit_email = e2.text_input("Email", value=str(selected.get("email") or ""))
+            e3, e4 = st.columns(2)
+            edit_role = e3.selectbox(
+                "Role",
+                role_options,
+                index=role_index,
+                disabled=is_self,
+                help="You cannot change your own administrative role.",
+            )
+            edit_active = e4.checkbox(
+                "Account active",
+                value=bool(selected.get("is_active")),
+                disabled=is_self,
+                help="You cannot deactivate your own account.",
+            )
+            st.caption(
+                "Employee profile link: "
+                + (str(selected.get("employee_name") or "Not linked"))
+                + f" (ID {selected.get('employee_id')})"
+            )
+            save_user = st.form_submit_button("Save Changes", type="primary")
+
+        if save_user:
+            try:
+                updated = update_user(
+                    selected_id,
+                    full_name=edit_name.strip(),
+                    email=edit_email.strip().lower(),
+                    role=current_role if is_self else edit_role,
+                    is_active=True if is_self else edit_active,
+                )
+                if updated:
+                    if is_self:
+                        st.session_state.user["full_name"] = edit_name.strip()
+                        st.session_state.user["email"] = edit_email.strip().lower()
+                    log_audit(
+                        current_user_id,
+                        "UPDATE_USER",
+                        "user",
+                        selected_id,
+                        f"Account updated for {edit_email.strip().lower()}",
+                    )
+                    st.success("Account updated successfully.")
+                    st.rerun()
+                else:
+                    st.error("No changes were applied. Verify the account still exists.")
+            except Exception as error:
+                st.error(f"Could not update account: {error}")
+
+        if not is_self:
+            with st.expander("Delete Account"):
+                st.warning(
+                    f"Deleting **{selected.get('email')}** permanently removes workspace access. "
+                    "The linked employee profile and assessments are not deleted."
+                )
+                confirm_delete = st.checkbox(
+                    "I understand this account will be permanently removed.",
+                    key=f"confirm_delete_user_{selected_id}",
+                )
+                if st.button(
+                    "Delete Account",
+                    disabled=not confirm_delete,
+                    key=f"delete_user_{selected_id}",
+                ):
+                    if delete_user(selected_id, current_user_id):
+                        st.success("Account deleted.")
+                        st.rerun()
+                    else:
+                        st.error("Could not delete this account.")
+
+    # ------------------------------------------------------------------
+    # Create account
+    # ------------------------------------------------------------------
+    _section_heading("Create Account", "Provision a new identity with a temporary password")
+    with st.form("create_user_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        new_email = c1.text_input("Email *", placeholder="user@workpulse.local")
+        new_name = c2.text_input("Full Name *", placeholder="User Name")
+        new_role = c3.selectbox("Role *", options=["employee", "hr", "admin"])
+        c4, c5 = st.columns(2)
+        new_employee_code = c4.text_input(
+            "Employee ID (optional)",
+            placeholder="e.g. WP-1001",
+            help="Link this account to an existing employee profile.",
+        )
+        new_password = c5.text_input(
+            "Temporary Password *",
+            type="password",
+            placeholder="Minimum 8 characters",
+            help="Share this securely. The user should change it after signing in.",
+        )
+        create_account = st.form_submit_button("Create Account", type="primary")
+
+    if create_account:
+        if not new_email.strip() or not new_name.strip():
+            st.error("Email and Full Name are required.")
+        elif "@" not in new_email:
+            st.error("Please enter a valid email address.")
+        elif len(new_password) < 8:
+            st.error("Temporary password must be at least 8 characters long.")
+        else:
+            employee_id = None
+            try:
+                if new_employee_code.strip():
+                    employee = find_employee_by_code(new_employee_code)
+                    if employee is None:
+                        raise ValueError("That Employee ID was not found.")
+                    employee_id = int(employee["employee_id"])
+                create_user(
+                    email=new_email,
+                    full_name=new_name,
+                    role=new_role,
+                    created_by_user_id=current_user_id,
+                    employee_id=employee_id,
+                    plain_password=new_password,
+                    require_password_change=True,
+                    is_active=True,
+                )
+                st.success(
+                    f"Account created for {new_email}. Share the temporary password securely; "
+                    "the user must change it at first sign-in."
+                )
+                st.rerun()
+            except Exception as error:
+                st.error(f"Failed to create account: {error}")
+
+    # ------------------------------------------------------------------
+    # Audit trail
+    # ------------------------------------------------------------------
+    _section_heading("Recent Audit Activity", "Account and configuration events recorded by the system")
+    audit_entries = get_audit_log(limit=25)
     if audit_entries:
-        audit_df = pd.DataFrame([
-            {
-                "Time": entry.get("performed_at", "")[:19],
-                "Action": entry.get("action", ""),
-                "User": entry.get("performed_by_email", "System") or "System",
-                "Detail": (entry.get("detail", "")[:60] + "...") if len(str(entry.get("detail", ""))) > 60 else entry.get("detail", ""),
-            }
-            for entry in audit_entries
-        ])
-        st.dataframe(audit_df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Time": str(entry.get("performed_at", ""))[:19],
+                        "Action": entry.get("action", ""),
+                        "Actor": entry.get("performed_by_email") or "System",
+                        "Detail": entry.get("detail", ""),
+                    }
+                    for entry in audit_entries
+                ]
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
     else:
         st.info("No recent audit activity recorded.")
 
-    # Create new user section
-    st.markdown("---")
-    _section_heading("Create New User")
-    with st.form("create_user_form", clear_on_submit=True):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            new_email = st.text_input("Email", placeholder="user@workpulse.local")
-        with col2:
-            new_name = st.text_input("Full Name", placeholder="User Name")
-        with col3:
-            new_role = st.selectbox("Role", options=["employee", "hr", "admin"])
-
-        st.markdown("**Demo Password (visible for easy testing):** `Create@WorkPulse2024`")
-
-        if st.form_submit_button("Create User", type="primary", use_container_width=True):
-            if not new_email.strip() or not new_name.strip():
-                st.error("Email and Full Name are required.")
-            elif "@" not in new_email:
-                st.error("Please enter a valid email address.")
-            else:
-                try:
-                    create_user(
-                        email=new_email,
-                        full_name=new_name,
-                        role=new_role,
-                        created_by_user_id=None,  # Will be set to admin
-                        plain_password="Create@WorkPulse2024",
-                    )
-                    st.success(f"User {new_email} created with {new_role} role.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed to create user: {e}")
-
 
 def _settings_page() -> None:
+    if not require_role("admin"):
+        _unauthorized_alert()
+        return
+
     render_page_heading(
         title="Workspace Settings & Demo Suite",
         subtitle="Manage workspace preferences, system diagnostics, and evaluation demo records.",
@@ -1994,10 +2691,13 @@ def _finite(value: Any, fallback: float) -> float:
 # =============================================================================
 def main() -> None:
     _configure_page()
-    initialize_database()
-    init_auth_tables()
-    ensure_default_admin()
-    mark_bundled_sample_records()
+    if not st.session_state.get("_db_bootstrapped"):
+        initialize_database()
+        init_auth_tables()
+        ensure_default_admin()
+        link_demo_employee_account()
+        mark_bundled_sample_records()
+        st.session_state["_db_bootstrapped"] = True
     summary = get_dashboard_summary()
     settings = get_settings()
     admin_name = settings.get("admin_name", "Administrator")
@@ -2017,15 +2717,26 @@ def main() -> None:
     query_page = st.query_params.get("page")
     if query_page:
         qp_clean = str(query_page).strip().lower()
-        if qp_clean in ("login", "signin", "sign_in", "employee/login", "hr/login", "admin/login", "reset_password"):
-            st.session_state.auth_page = "login" if qp_clean != "reset_password" else "reset_password"
-            st.session_state.active_page = qp_clean if qp_clean != "employee/login" and qp_clean != "hr/login" and qp_clean != "admin/login" else "login"
-            if "employee" in qp_clean:
-                st.query_params["role"] = "employee"
-            elif "hr" in qp_clean:
-                st.query_params["role"] = "hr"
-            elif "admin" in qp_clean:
-                st.query_params["role"] = "admin"
+        if qp_clean in (
+            "login", "signin", "sign_in", "employee/login", "hr/login",
+            "admin/login", "reset_password", "register", "forgot_password",
+        ):
+            if "user" not in st.session_state:
+                auth_targets = {
+                    "reset_password": "reset_password",
+                    "register": "register",
+                    "forgot_password": "forgot_password",
+                }
+                st.session_state.auth_page = auth_targets.get(qp_clean, "login")
+                st.session_state.active_page = "login"
+                if "employee" in qp_clean:
+                    st.query_params["role"] = "employee"
+                elif "hr" in qp_clean:
+                    st.query_params["role"] = "hr"
+                elif "admin" in qp_clean:
+                    st.query_params["role"] = "admin"
+            else:
+                st.query_params["page"] = st.session_state.get("active_page", "Dashboard")
         else:
             for k in list(visible_nav.keys()) + ["Home"]:
                 if k.lower() == qp_clean:
@@ -2050,11 +2761,30 @@ def main() -> None:
         auth_page = st.session_state.get("auth_page", "login")
         if auth_page == "reset_password":
             render_password_reset_page()
+        elif auth_page == "forgot_password":
+            render_forgot_password_page()
+        elif auth_page == "register":
+            render_register_page()
         else:
             render_login_page()
         return
 
-    # Enforce password change if required (except for Admin who can bypass)
+    # Enforce a maximum session lifetime based on the sign-in timestamp
+    session_started = st.session_state.get("session_started_at")
+    now_utc = datetime.utcnow()
+    if not isinstance(session_started, datetime):
+        st.session_state["session_started_at"] = now_utc
+    elif now_utc - session_started > timedelta(hours=SESSION_MAX_AGE_HOURS):
+        st.session_state.pop("user", None)
+        st.session_state.pop("session_started_at", None)
+        st.session_state.pop("show_logout_confirm", None)
+        st.session_state["session_expired"] = True
+        st.session_state.auth_page = "login"
+        st.session_state.active_page = "Home"
+        st.query_params["page"] = "login"
+        st.rerun()
+
+    # Enforce password change if required
     if st.session_state.user.get("must_change_password"):
         render_change_password_page(st.session_state.user)
         return
@@ -2067,17 +2797,20 @@ def main() -> None:
     # Render Sidebar
     page = _sidebar(summary, admin_name, workspace_name)
 
-    # If sidebar radio selected Home
+    # Check if navigating to Home - render homepage directly
     if page == "Home":
-        st.session_state.active_page = "Home"
+        employees = get_employees()
+        periods = get_periods()
+        areas = get_areas()
+        assessments = get_assessments()
         st.query_params["page"] = "Home"
-        st.rerun()
+        render_homepage(summary, employees, assessments, periods, areas, settings)
+        return
 
-    # Render Topbar
+    # Render Topbar (badge reflects unread system alerts only)
     notifications = get_notifications()
     unread_count = int(notifications["read_at"].isna().sum()) if not notifications.empty else 0
-    pending_count = len(get_pending_reviews())
-    _topbar(page, unread_count + pending_count, admin_name)
+    _topbar(page, unread_count, admin_name)
 
     # Retrieve Domain Data
     employees = get_employees()
@@ -2085,9 +2818,16 @@ def main() -> None:
     areas = get_areas()
     assessments = get_assessments()
 
+    # Server-side route guard: URL manipulation cannot bypass role boundaries
+    if not can_access_page(page, role):
+        _unauthorized_alert()
+        return
+
     # Route to Module Page
     if page == "Dashboard":
         _dashboard(employees, assessments, summary, periods)
+    elif page == "My Profile":
+        _my_profile_page(employees, assessments)
     elif page == "Employees":
         _employees_page(employees, assessments)
     elif page == "Performance Periods":
@@ -2103,7 +2843,7 @@ def main() -> None:
     elif page == "Reports":
         _reports_page(assessments)
     elif page == "Notifications":
-        _notifications_page()
+        _notifications_page(employees, assessments)
     elif page == "Settings":
         _settings_page()
     elif page == "User Management":

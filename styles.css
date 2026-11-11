@@ -13,6 +13,7 @@
     --wp-teal-hover: #0E7C7B;
     --wp-teal-light: #EBF7F6;
     --wp-teal-border: #99F6E4;
+    --wp-teal-trans: rgba(22, 140, 131, 0.25);
     --wp-bg: #F8FAFC;
     --wp-surface: #FFFFFF;
     --wp-surface-subtle: #F1F5F9;
@@ -40,6 +41,11 @@
 }
 
 /* Base resets & typography */
+html {
+    overflow-y: scroll;
+    scroll-behavior: smooth;
+}
+
 html, body, [class*="css"] {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     color: var(--wp-text-primary);
@@ -63,6 +69,16 @@ html, body, [class*="css"] {
     padding-bottom: 3.5rem;
     padding-left: 2rem;
     padding-right: 2rem;
+    animation: wpFadeIn 100ms ease-out;
+}
+
+@keyframes wpFadeIn {
+    from { opacity: 0.95; }
+    to { opacity: 1; }
+}
+
+[data-testid="stSidebar"] {
+    transition: none !important;
 }
 
 /* ==========================================================================
@@ -138,52 +154,116 @@ html, body, [class*="css"] {
     color: var(--wp-text-muted);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    margin: 1rem 0 0.4rem 0.4rem;
+    margin: 1.15rem 0 0.5rem 0.5rem;
 }
 
-/* Sidebar Navigation (Radio Override) */
-[data-testid="stSidebar"] [data-testid="stRadio"] > label {
+/* Sidebar Navigation (Modern Enterprise SaaS Item Buttons) */
+[data-testid="stSidebar"] [data-testid="stRadio"] {
+    gap: 0 !important;
+    padding: 0 0.25rem !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] > label,
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"] {
     display: none !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] {
-    gap: 0.25rem;
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.25rem !important;
+    padding: 0 !important;
+    width: 100% !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label {
-    min-height: 2.5rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: var(--wp-radius-md);
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"] {
+    display: flex !important;
+    align-items: center !important;
+    width: 100% !important;
+    min-height: 2.625rem !important;
+    padding: 0.55rem 0.85rem !important;
+    margin: 0 !important;
+    border-radius: var(--wp-radius-md) !important;
     color: var(--wp-text-secondary) !important;
-    font-size: 0.875rem;
-    font-weight: 500;
-    border-left: 3px solid transparent;
-    transition: all 120ms ease-in-out;
-    background: transparent;
-    display: flex;
-    align-items: center;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+    border-left: 3px solid transparent !important;
+    transition: all 140ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+    background: transparent !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+    box-sizing: border-box !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
-    background-color: var(--wp-surface-subtle);
-    color: var(--wp-text-primary) !important;
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"]:hover {
+    background-color: var(--wp-surface-subtle) !important;
+    color: var(--wp-navy) !important;
+    border-left-color: rgba(22, 140, 131, 0.4) !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+/* Hide default circular radio button dot */
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"] > div:first-of-type {
+    display: none !important;
+}
+
+/* Hide hidden radio input */
+[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
+    position: absolute !important;
+    opacity: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+    pointer-events: none !important;
+}
+
+/* Active navigation item highlighting */
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"]:has(input:checked) {
     background-color: var(--wp-teal-light) !important;
     color: var(--wp-teal) !important;
     font-weight: 600 !important;
     border-left: 3px solid var(--wp-teal) !important;
+    box-shadow: 0 1px 4px rgba(22, 140, 131, 0.1) !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label > div:first-child {
-    display: none;
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"]:has(input:checked) p,
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"]:has(input:checked) span {
+    color: var(--wp-teal) !important;
+    font-weight: 600 !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label p {
+/* Text and icon alignment inside each item */
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"] div[data-testid="stMarkdownContainer"] {
+    width: 100% !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"] div[data-testid="stMarkdownContainer"] p {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.65rem !important;
+    margin: 0 !important;
+    font-size: 0.875rem !important;
+    line-height: 1.4 !important;
     color: inherit !important;
-    font-size: 0.875rem;
-    margin: 0;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"] [data-testid="stIconMaterial"],
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label[data-baseweb="radio"] span.material-symbols-rounded {
+    font-size: 1.25rem !important;
+    width: 1.25rem !important;
+    height: 1.25rem !important;
+    color: inherit !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+}
+
+/* Sidebar Sign Out button */
+[data-testid="stSidebar"] div.stButton > button[key="sidebar_logout_btn"],
+[data-testid="stSidebar"] div.stButton > button {
+    border-radius: var(--wp-radius-md) !important;
+    font-weight: 600 !important;
+    font-size: 0.8125rem !important;
+    transition: all 140ms ease !important;
 }
 
 /* Sidebar Footer & Metadata */
@@ -3078,4 +3158,108 @@ input:focus, select:focus, textarea:focus {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   WORKSPACE CHROME & APPLICATION RESPONSIVENESS
+   ========================================================================== */
+
+/* Remove Streamlit deployment chrome from the product experience */
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+.stDeployButton,
+#MainMenu {
+    display: none !important;
+}
+
+/* Keep the app surface calm and corporate */
+[data-testid="stAppViewContainer"] {
+    background: #F8FAFC;
+}
+
+[data-testid="stMainBlockContainer"] {
+    padding-top: 1.75rem;
+    padding-bottom: 3rem;
+}
+
+/* Sidebar polish */
+[data-testid="stSidebar"] {
+    border-right: 1px solid var(--wp-border);
+}
+
+[data-testid="stSidebar"] .stRadio > div {
+    gap: 0.15rem;
+}
+
+/* Tables and charts fit the content column */
+[data-testid="stDataFrame"],
+[data-testid="stPlotlyChart"] {
+    max-width: 100%;
+}
+
+/* Tablet */
+@media (max-width: 1024px) {
+    [data-testid="stMainBlockContainer"] {
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
+    }
+    .wp-profile-metrics-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+    [data-testid="stMainBlockContainer"] {
+        padding: 1rem 0.85rem 2.5rem 0.85rem !important;
+    }
+    .wp-page-title {
+        font-size: 1.5rem !important;
+    }
+    .wp-metric-card {
+        padding: 1rem !important;
+    }
+    .wp-metric-value {
+        font-size: 1.5rem !important;
+    }
+    .wp-profile-top {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+    }
+    .wp-profile-metrics-grid {
+        grid-template-columns: 1fr !important;
+    }
+    .wp-cycle-banner {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+        gap: 0.75rem;
+    }
+    .wp-cycle-banner > div {
+        text-align: left !important;
+        min-width: 0 !important;
+        width: 100%;
+    }
+    .wp-section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.15rem;
+    }
+    div[data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        min-width: 100% !important;
+        flex: 1 1 100% !important;
+    }
+}
+
+/* Small mobile */
+@media (max-width: 420px) {
+    .wp-metric-card {
+        padding: 0.85rem !important;
+    }
+    .wp-auth-card {
+        padding: 1.35rem !important;
+    }
 }

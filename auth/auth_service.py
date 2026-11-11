@@ -257,6 +257,24 @@ def get_user_by_id(user_id: int) -> Optional[dict]:
 # User management
 # ---------------------------------------------------------------------------
 
+def _assert_employee_link_available(employee_id: int, exclude_user_id: Optional[int] = None) -> None:
+    """Raise ValueError when an employee profile is already linked to another user."""
+    conn = get_db()
+    try:
+        query = "SELECT user_id, email FROM users WHERE employee_id = ?"
+        params: list[Any] = [int(employee_id)]
+        if exclude_user_id is not None:
+            query += " AND user_id != ?"
+            params.append(int(exclude_user_id))
+        row = conn.execute(query, params).fetchone()
+        if row:
+            raise ValueError(
+                f"Employee profile is already linked to the account {row['email']}."
+            )
+    finally:
+        conn.close()
+
+
 def create_user(
     email: str,
     full_name: str,
@@ -264,6 +282,8 @@ def create_user(
     created_by_user_id: Optional[int],
     employee_id: Optional[int] = None,
     plain_password: Optional[str] = None,
+    require_password_change: bool = False,
+    is_active: bool = True,
 ) -> int:
     """
     Create a new user account.
@@ -275,8 +295,10 @@ def create_user(
     email = email.lower().strip()
     if role not in ("employee", "hr", "admin"):
         raise ValueError("Invalid role.")
+    if employee_id is not None:
+        _assert_employee_link_available(employee_id)
 
-    must_change = 0
+    must_change = 1 if require_password_change else 0
     if plain_password:
         pw_hash = hash_password(plain_password)
     else:
@@ -292,7 +314,7 @@ def create_user(
             INSERT INTO users
                 (email, password_hash, full_name, role, employee_id,
                  is_active, must_change_password, created_at, created_by)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 email,
@@ -300,6 +322,7 @@ def create_user(
                 full_name.strip(),
                 role,
                 employee_id,
+                1 if is_active else 0,
                 must_change,
                 datetime.utcnow().isoformat(timespec="seconds"),
                 created_by_user_id,
@@ -333,6 +356,8 @@ def update_user(user_id: int, **kwargs: Any) -> bool:
 
     if "role" in updates and updates["role"] not in ("employee", "hr", "admin"):
         raise ValueError("Invalid role.")
+    if updates.get("employee_id") is not None:
+        _assert_employee_link_available(int(updates["employee_id"]), exclude_user_id=int(user_id))
     if "email" in updates:
         updates["email"] = updates["email"].lower().strip()
 
@@ -350,6 +375,213 @@ def update_user(user_id: int, **kwargs: Any) -> bool:
             log_audit(None, "UPDATE_USER", "user", user_id, f"Fields updated: {list(updates)}")
             return True
         return False
+    finally:
+        conn.close()
+
+
+def delete_user(user_id: int, deleted_by_user_id: Optional[int] = None) -> bool:
+    """Permanently remove a user account (used to reject pending registrations)."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT email FROM users WHERE user_id = ?", (int(user_id),)
+        ).fetchone()
+        if row is None:
+            return False
+        conn.execute("DELETE FROM users WHERE user_id = ?", (int(user_id),))
+        conn.commit()
+        log_audit(
+            deleted_by_user_id,
+            "DELETE_USER",
+            "user",
+            int(user_id),
+            f"Deleted account {row['email']}",
+        )
+        return True
+    finally:
+        conn.close()
+
+
+def find_employee_by_code(employee_code: str) -> Optional[dict]:
+    """Return the employee profile for a staff ID (case-insensitive), if it exists."""
+    code = (employee_code or "").strip()
+    if not code:
+        return None
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """
+            SELECT employee_id, employee_code, employee_name, department, status
+            FROM   employees
+            WHERE  UPPER(employee_code) = UPPER(?)
+            """,
+            (code,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def register_pending_user(
+    email: str,
+    full_name: str,
+    password: str,
+    employee_code: Optional[str] = None,
+) -> int:
+    """
+    Create a self-service employee account request in an inactive state.
+
+    An administrator must approve the account before sign-in is possible.
+    If *employee_code* is supplied it must match an existing employee profile.
+    """
+    email = (email or "").strip().lower()
+    full_name = (full_name or "").strip()
+    if not email or "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise ValueError("Enter a valid email address.")
+    if len(full_name) < 2:
+        raise ValueError("Enter your full name.")
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters long.")
+
+    employee_id = None
+    if employee_code and employee_code.strip():
+        employee = find_employee_by_code(employee_code)
+        if employee is None:
+            raise ValueError("That Employee ID was not found. Check it or leave it blank.")
+        employee_id = int(employee["employee_id"])
+        _assert_employee_link_available(employee_id)
+
+    conn = get_db()
+    try:
+        existing = conn.execute(
+            "SELECT 1 FROM users WHERE LOWER(email) = ?", (email,)
+        ).fetchone()
+        if existing:
+            raise ValueError("An account with this email already exists.")
+    finally:
+        conn.close()
+
+    return create_user(
+        email=email,
+        full_name=full_name,
+        role="employee",
+        created_by_user_id=None,
+        employee_id=employee_id,
+        plain_password=password,
+        require_password_change=False,
+        is_active=False,
+    )
+
+
+def approve_user(user_id: int, approved_by_user_id: Optional[int] = None) -> bool:
+    """Activate a pending account request."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT user_id, email, is_active FROM users WHERE user_id = ?",
+            (int(user_id),),
+        ).fetchone()
+        if row is None:
+            return False
+        conn.execute("UPDATE users SET is_active = 1 WHERE user_id = ?", (int(user_id),))
+        conn.commit()
+        log_audit(
+            approved_by_user_id,
+            "APPROVE_USER",
+            "user",
+            int(user_id),
+            f"Approved access for {row['email']}",
+        )
+        return True
+    finally:
+        conn.close()
+
+
+def authenticate_user_with_status(email: str, password: str) -> tuple[str, Optional[dict]]:
+    """
+    Authenticate and return a user-facing status.
+
+    Returns ("success", user), ("pending", None), or ("invalid", None).
+    The pending state is only revealed after the password is verified, so
+    wrong passwords never disclose whether an account exists.
+    """
+    user = authenticate_user(email, password)
+    if user is not None:
+        return "success", user
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            """
+            SELECT is_active, password_hash
+            FROM   users
+            WHERE  LOWER(email) = ?
+            """,
+            ((email or "").strip().lower(),),
+        ).fetchone()
+        if row and not row["is_active"] and verify_password(password, row["password_hash"]):
+            return "pending", None
+    finally:
+        conn.close()
+    return "invalid", None
+
+
+def link_demo_employee_account() -> bool:
+    """
+    Attach the built-in employee demo account to a real employee profile.
+
+    Runs on startup. If the demo account is unlinked it is attached to the
+    first active employee that has a completed assessment, so the employee
+    portal never falls back to another person's record.
+    """
+    conn = get_db()
+    try:
+        account = conn.execute(
+            "SELECT user_id FROM users WHERE LOWER(email) = 'employee@workpulse.local'"
+        ).fetchone()
+        if account is None:
+            return False
+        linked = conn.execute(
+            "SELECT employee_id FROM users WHERE user_id = ?", (account["user_id"],)
+        ).fetchone()
+        if linked and linked["employee_id"] is not None:
+            return False
+
+        candidate = conn.execute(
+            """
+            SELECT e.employee_id, e.employee_name
+            FROM   employees e
+            JOIN   assessments a ON a.employee_id = e.employee_id
+            LEFT JOIN users u ON u.employee_id = e.employee_id
+            WHERE  e.status = 'Active' AND u.user_id IS NULL
+            GROUP BY e.employee_id
+            ORDER BY MAX(a.assessment_date) DESC, e.employee_id ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        if candidate is None:
+            candidate = conn.execute(
+                """
+                SELECT employee_id, employee_name
+                FROM   employees
+                WHERE  status = 'Active'
+                ORDER BY employee_id ASC
+                LIMIT 1
+                """
+            ).fetchone()
+        if candidate is None:
+            return False
+
+        conn.execute(
+            """
+            UPDATE users
+            SET    employee_id = ?, full_name = ?
+            WHERE  user_id = ?
+            """,
+            (candidate["employee_id"], candidate["employee_name"], account["user_id"]),
+        )
+        conn.commit()
+        return True
     finally:
         conn.close()
 

@@ -56,19 +56,17 @@ def render_page_heading(
         safe_badge = escape(badge)
         badge_html = f'<span class="wp-badge wp-badge-active" style="margin-left:0.75rem;">{safe_badge}</span>'
 
-    st.markdown(
-        f"""
-        <div style="margin-bottom: 1.5rem;">
-            {bc_html}
-            <div style="display:flex; align-items:center;">
-                <h1 class="wp-page-title">{safe_title}</h1>
-                {badge_html}
-            </div>
-            <p class="wp-page-subtitle">{safe_sub}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    parts = ['<div style="margin-bottom: 1.5rem;">']
+    if bc_html:
+        parts.append(bc_html)
+    parts.append('<div style="display:flex; align-items:center;">')
+    parts.append(f'<h1 class="wp-page-title">{safe_title}</h1>')
+    if badge_html:
+        parts.append(badge_html)
+    parts.append("</div>")
+    parts.append(f'<p class="wp-page-subtitle">{safe_sub}</p>')
+    parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------
@@ -186,14 +184,71 @@ def render_employee_profile_card(emp: dict[str, Any]) -> None:
     desig = escape(str(emp.get("designation") or "Staff Member"))
     status = str(emp.get("status", "Active"))
     tenure = f"{float(emp.get('experience_years', 0)):.1f} yrs"
-    
-    att = float(emp.get("attendance_rate") or 90.0)
-    task = float(emp.get("task_completion_rate") or 85.0)
-    training = float(emp.get("training_hours") or 24.0)
-    rating = float(emp.get("previous_performance") or 3.5)
-    
+
+    def _metric(key: str) -> float | None:
+        value = emp.get(key)
+        if value is None:
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if number != number:  # NaN without importing pandas
+            return None
+        return number
+
+    att = _metric("attendance_rate")
+    task = _metric("task_completion_rate")
+    training = _metric("training_hours")
+    rating = _metric("previous_performance")
+
+    def _metric_box(label: str, value: float | None, display: str, width: float) -> str:
+        if value is None:
+            return (
+                '<div class="wp-profile-metric-box">'
+                f'<div class="wp-profile-metric-label">{escape(label)}</div>'
+                '<div class="wp-profile-metric-val" style="font-size:1rem; color:#94A3B8;">Not recorded</div>'
+                '<div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:0%;"></div></div>'
+                "</div>"
+            )
+        return (
+            '<div class="wp-profile-metric-box">'
+            f'<div class="wp-profile-metric-label">{escape(label)}</div>'
+            f'<div class="wp-profile-metric-val">{escape(display)}</div>'
+            f'<div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:{min(100, int(width))}%;"></div></div>'
+            "</div>"
+        )
+
     initials = "".join(part[0].upper() for part in name.split()[:2]) or "E"
     status_chip = render_status_badge(status)
+    metrics_html = "".join(
+        [
+            _metric_box(
+                "Attendance Rate",
+                att,
+                f"{att:.1f}%" if att is not None else "Not recorded",
+                att if att is not None else 0,
+            ),
+            _metric_box(
+                "Task Completion",
+                task,
+                f"{task:.1f}%" if task is not None else "Not recorded",
+                task if task is not None else 0,
+            ),
+            _metric_box(
+                "Training Logged",
+                training,
+                f"{training:.0f} hrs" if training is not None else "Not recorded",
+                (training * 2) if training is not None else 0,
+            ),
+            _metric_box(
+                "Prior Score",
+                rating,
+                f"{rating:.1f} / 5.0" if rating is not None else "Not recorded",
+                (rating * 20) if rating is not None else 0,
+            ),
+        ]
+    )
 
     st.markdown(
         f"""
@@ -217,26 +272,7 @@ def render_employee_profile_card(emp: dict[str, Any]) -> None:
                 </div>
             </div>
             <div class="wp-profile-metrics-grid">
-                <div class="wp-profile-metric-box">
-                    <div class="wp-profile-metric-label">Attendance Rate</div>
-                    <div class="wp-profile-metric-val">{att:.1f}%</div>
-                    <div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:{min(100, int(att))}%;"></div></div>
-                </div>
-                <div class="wp-profile-metric-box">
-                    <div class="wp-profile-metric-label">Task Completion</div>
-                    <div class="wp-profile-metric-val">{task:.1f}%</div>
-                    <div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:{min(100, int(task))}%;"></div></div>
-                </div>
-                <div class="wp-profile-metric-box">
-                    <div class="wp-profile-metric-label">Training Logged</div>
-                    <div class="wp-profile-metric-val">{training:.0f} hrs</div>
-                    <div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:{min(100, int(training * 2))}%;"></div></div>
-                </div>
-                <div class="wp-profile-metric-box">
-                    <div class="wp-profile-metric-label">Prior Score</div>
-                    <div class="wp-profile-metric-val">{rating:.1f} / 5.0</div>
-                    <div class="wp-progress-wrap"><div class="wp-progress-bar" style="width:{min(100, int(rating * 20))}%;"></div></div>
-                </div>
+                {metrics_html}
             </div>
         </div>
         """,

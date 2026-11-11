@@ -62,6 +62,15 @@ def initialize_database(db_path: str = DB_PATH) -> None:
                 weight REAL NOT NULL CHECK (weight >= 0 AND weight <= 100),
                 active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
             );
+            CREATE TABLE IF NOT EXISTS employee_metrics (
+                employee_id INTEGER PRIMARY KEY,
+                attendance_rate REAL NOT NULL CHECK (attendance_rate >= 0 AND attendance_rate <= 100),
+                task_completion_rate REAL NOT NULL CHECK (task_completion_rate >= 0 AND task_completion_rate <= 100),
+                training_hours REAL NOT NULL CHECK (training_hours >= 0 AND training_hours <= 1000),
+                previous_performance REAL NOT NULL CHECK (previous_performance >= 1 AND previous_performance <= 5),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS assessments (
                 assessment_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 employee_id INTEGER NOT NULL,
@@ -302,14 +311,18 @@ def get_employees(db_path: str = DB_PATH) -> pd.DataFrame:
                 SELECT e.employee_id, e.employee_code, e.employee_name, e.department,
                        e.designation, e.joining_date, e.status, e.experience_years,
                        e.data_origin,
-                       pr.attendance_rate, pr.task_completion_rate, pr.training_hours,
-                       pr.previous_performance, pr.performance_category, pr.review_date,
+                       COALESCE(em.attendance_rate, pr.attendance_rate) AS attendance_rate,
+                       COALESCE(em.task_completion_rate, pr.task_completion_rate) AS task_completion_rate,
+                       COALESCE(em.training_hours, pr.training_hours) AS training_hours,
+                       COALESCE(em.previous_performance, pr.previous_performance) AS previous_performance,
+                       pr.performance_category, pr.review_date,
                        ROW_NUMBER() OVER (
                            PARTITION BY e.employee_id
                            ORDER BY pr.review_date DESC, pr.record_id DESC
                        ) AS review_rank
                 FROM employees e
                 LEFT JOIN performance_records pr ON pr.employee_id = e.employee_id
+                LEFT JOIN employee_metrics em ON em.employee_id = e.employee_id
             )
             WHERE review_rank = 1
             ORDER BY employee_name COLLATE NOCASE
@@ -382,7 +395,7 @@ def create_employee(
     employee_name: str,
     department: str,
     designation: str,
-    joining_date: date | str,
+    joining_date: date | str | None,
     status: str,
     experience_years: float,
     db_path: str = DB_PATH,
@@ -397,18 +410,32 @@ def create_employee(
         raise ValueError("Experience must be between 0 and 80 years.")
     join_date = _iso_date(joining_date, "Joining date")
     with _connection(db_path) as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO employees
-                (employee_code, employee_name, department, designation,
-                 joining_date, status, experience_years)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                values[0], values[1], values[2], designation.strip(),
-                join_date, status, experience,
-            ),
-        )
+        if join_date is None:
+            cursor = connection.execute(
+                """
+                INSERT INTO employees
+                    (employee_code, employee_name, department, designation,
+                     status, experience_years)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    values[0], values[1], values[2], designation.strip(),
+                    status, experience,
+                ),
+            )
+        else:
+            cursor = connection.execute(
+                """
+                INSERT INTO employees
+                    (employee_code, employee_name, department, designation,
+                     joining_date, status, experience_years)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    values[0], values[1], values[2], designation.strip(),
+                    join_date, status, experience,
+                ),
+            )
         _notify(connection, "Employee added", f"{values[1]} was added to the employee directory.")
         connection.commit()
         return int(cursor.lastrowid)
@@ -420,7 +447,7 @@ def update_employee_profile(
     employee_name: str,
     department: str,
     designation: str,
-    joining_date: date | str,
+    joining_date: date | str | None,
     status: str,
     experience_years: float,
     db_path: str = DB_PATH,
@@ -433,20 +460,34 @@ def update_employee_profile(
     experience = float(experience_years)
     if not 0 <= experience <= 80:
         raise ValueError("Experience must be between 0 and 80 years.")
+    join_date = _iso_date(joining_date, "Joining date")
     with _connection(db_path) as connection:
-        cursor = connection.execute(
-            """
-            UPDATE employees
-            SET employee_code = ?, employee_name = ?, department = ?,
-                designation = ?, joining_date = ?, status = ?, experience_years = ?
-            WHERE employee_id = ?
-            """,
-            (
-                values[0], values[1], values[2], designation.strip(),
-                _iso_date(joining_date, "Joining date"), status,
-                experience, int(employee_id),
-            ),
-        )
+        if join_date is None:
+            cursor = connection.execute(
+                """
+                UPDATE employees
+                SET employee_code = ?, employee_name = ?, department = ?,
+                    designation = ?, status = ?, experience_years = ?
+                WHERE employee_id = ?
+                """,
+                (
+                    values[0], values[1], values[2], designation.strip(),
+                    status, experience, int(employee_id),
+                ),
+            )
+        else:
+            cursor = connection.execute(
+                """
+                UPDATE employees
+                SET employee_code = ?, employee_name = ?, department = ?,
+                    designation = ?, joining_date = ?, status = ?, experience_years = ?
+                WHERE employee_id = ?
+                """,
+                (
+                    values[0], values[1], values[2], designation.strip(),
+                    join_date, status, experience, int(employee_id),
+                ),
+            )
         if cursor.rowcount != 1:
             raise ValueError("The selected employee no longer exists.")
         connection.commit()
@@ -459,6 +500,67 @@ def delete_employee(employee_id: int, db_path: str = DB_PATH) -> None:
         )
         if cursor.rowcount != 1:
             raise ValueError("The selected employee no longer exists.")
+        connection.commit()
+
+
+def update_employee_metrics(
+    employee_id: int,
+    attendance_rate: float,
+    task_completion_rate: float,
+    training_hours: float,
+    previous_performance: float,
+    db_path: str = DB_PATH,
+) -> None:
+    """Store current operational indicators used as ML prediction inputs.
+
+    These values are operational measurements (not review outcomes). They are
+    kept in a dedicated table so updating them never fabricates a performance
+    label for model training.
+    """
+    attendance = float(attendance_rate)
+    task = float(task_completion_rate)
+    training = float(training_hours)
+    previous = float(previous_performance)
+    if not 0 <= attendance <= 100:
+        raise ValueError("Attendance rate must be between 0 and 100.")
+    if not 0 <= task <= 100:
+        raise ValueError("Task completion rate must be between 0 and 100.")
+    if not 0 <= training <= 1000:
+        raise ValueError("Training hours must be between 0 and 1000.")
+    if not 1 <= previous <= 5:
+        raise ValueError("Previous performance rating must be between 1 and 5.")
+
+    with _connection(db_path) as connection:
+        employee = connection.execute(
+            "SELECT employee_name FROM employees WHERE employee_id = ?",
+            (int(employee_id),),
+        ).fetchone()
+        if employee is None:
+            raise ValueError("The selected employee no longer exists.")
+        cursor = connection.execute(
+            """
+            UPDATE employee_metrics
+            SET attendance_rate = ?, task_completion_rate = ?, training_hours = ?,
+                previous_performance = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE employee_id = ?
+            """,
+            (attendance, task, training, previous, int(employee_id)),
+        )
+        if cursor.rowcount == 0:
+            connection.execute(
+                """
+                INSERT INTO employee_metrics
+                    (employee_id, attendance_rate, task_completion_rate,
+                     training_hours, previous_performance)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (int(employee_id), attendance, task, training, previous),
+            )
+        _notify(
+            connection,
+            "Operational metrics updated",
+            f"{employee['employee_name']}'s attendance, delivery, and training indicators were refreshed.",
+        )
         connection.commit()
 
 
@@ -857,7 +959,9 @@ def _notify(connection: sqlite3.Connection, title: str, message: str) -> None:
     )
 
 
-def _iso_date(value: date | str, label: str) -> str:
+def _iso_date(value: date | str | None, label: str) -> str | None:
+    if value is None or str(value).strip() == "":
+        return None
     try:
         return (
             date.fromisoformat(value).isoformat()
