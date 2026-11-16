@@ -47,6 +47,7 @@ from services.workpulse_service import (
     update_employee_metrics,
     update_employee_profile,
 )
+from database.db_manager import import_records_from_df
 from ui_components import (
     ICONS,
     apply_chart_style,
@@ -61,7 +62,7 @@ from ui_components import (
     show_empty_state,
 )
 from homepage_view import render_homepage
-from utils.validation import VALID_DEPARTMENTS
+from utils.validation import VALID_DEPARTMENTS, validate_csv_dataset
 from auth.auth_service import (
     init_auth_tables,
     ensure_default_admin,
@@ -1349,6 +1350,45 @@ def _employees_page(employees: pd.DataFrame, assessments: pd.DataFrame) -> None:
                 st.rerun()
             except Exception as error:
                 st.error(f"Could not save profile: {error}")
+
+    # Bulk Import Dataset Expander
+    with st.expander("📁  Bulk Import Dataset (CSV/Excel)", expanded=False):
+        st.caption("Upload a CSV or Excel file with employee performance data. Required columns: employee_code, department, attendance_rate, task_completion_rate, performance_category. Optional: employee_name, experience_years, training_hours, previous_performance, review_date.")
+        uploaded_file = st.file_uploader("Choose file", type=["csv", "xlsx", "xls"], key="bulk_import_file")
+
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    df_upload = pd.read_csv(uploaded_file)
+                else:
+                    df_upload = pd.read_excel(uploaded_file)
+
+                st.write("**Preview of uploaded data:**")
+                st.dataframe(df_upload.head(10), use_container_width=True)
+
+                if st.button("Validate & Import Dataset", type="primary", key="validate_import_btn"):
+                    with st.spinner("Validating and importing dataset..."):
+                        is_valid, cleaned_df, issues, stats = validate_csv_dataset(df_upload)
+
+                    if issues:
+                        for issue in issues:
+                            st.warning(issue)
+
+                    if not is_valid:
+                        st.error("Dataset validation failed. Please check the issues above.")
+                    else:
+                        st.success(f"Validation passed! {stats['valid_rows']:,} valid rows ready for import.")
+
+                        # Import to database
+                        try:
+                            inserted_count, skipped_count = import_records_from_df(cleaned_df)
+                            st.success(f"Import complete! {inserted_count:,} new employees added, {skipped_count:,} existing employees updated with new performance records.")
+                            st.rerun()
+                        except Exception as import_error:
+                            st.error(f"Import failed: {import_error}")
+
+            except Exception as e:
+                st.error(f"Could not read file: {e}")
 
     if employees.empty:
         render_empty_state("No Employees in System", "Register your first employee above to populate the directory.")
