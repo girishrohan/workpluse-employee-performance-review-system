@@ -6,6 +6,16 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.port", "8510", "--server.headless", "true"],
       "port": 8510
+    },
+    {
+      "name": "nextjs-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "nextjs-3000",
+      "url": "http://localhost:3000"
     }
   ]
 }
