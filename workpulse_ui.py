@@ -2777,11 +2777,13 @@ def main() -> None:
                     st.query_params["role"] = "admin"
             else:
                 st.query_params["page"] = st.session_state.get("active_page", "Dashboard")
-        else:
+        elif "user" in st.session_state:
+            # Only allow navigation pages from query params when user is authenticated
             for k in list(visible_nav.keys()) + ["Home"]:
                 if k.lower() == qp_clean:
                     st.session_state.active_page = k
                     break
+        # For unauthenticated users, ignore non-auth query params to show Home page
 
     if "active_page" not in st.session_state:
         st.session_state.active_page = "Home"
