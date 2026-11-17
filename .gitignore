@@ -19,5 +19,6 @@ __pycache__/
 # Node.js build artifacts
 dist/
 node_modules/
-package-lock.json
+.next/
+next-env.d.ts
 vite.config.ts.backup
