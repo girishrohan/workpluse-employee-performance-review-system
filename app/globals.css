@@ -153,6 +153,23 @@ tbody tr:hover { background: #fbfcfd; }
 @media (max-width: 620px) { .auth-page { display: block; min-height: 100vh; padding: 24px; background: #f6f8fa; }.auth-aside { display: none; }.auth-panel { min-height: calc(100vh - 48px); padding: 23px 20px; border: 1px solid var(--line); border-radius: 14px; background: white; box-shadow: var(--shadow); }.auth-panel-brand { display: flex; margin-bottom: 36px; }.auth-card h1 { font-size: 27px; }.topbar { padding: 0 14px; }.secure-label { display: none; }.workspace-main { padding: 23px 14px 28px; }.page-heading { align-items: flex-start; flex-direction: column; margin-bottom: 18px; }.page-heading h1 { font-size: 25px; }.page-heading > .button { width: 100%; }.welcome-banner { min-height: 215px; padding: 23px 21px; }.welcome-art { position: absolute; right: -81px; bottom: -30px; width: 200px; height: 170px; opacity: .5; }.welcome-copy { max-width: 100%; }.welcome-copy h2 { max-width: 300px; font-size: 25px; }.welcome-copy p { max-width: 260px; font-size: 11px; }.metric-grid { gap: 9px; margin: 12px 0; }.metric-card { padding: 13px 12px; }.metric-top > span:first-child { max-width: 100px; font-size: 9px; }.metric-icon { width: 28px; height: 28px; }.metric-value-row > strong { font-size: 24px; }.metric-card > p { font-size: 9px; }.dashboard-grid { grid-template-columns: 1fr; gap: 11px; }.dashboard-panel { min-height: 0; padding: 15px; }.quick-actions { grid-template-columns: 1fr; gap: 4px; padding: 15px; }.quick-actions > div { grid-column: auto; margin-bottom: 5px; }.workspace-footer { gap: 10px; padding: 13px 14px; font-size: 9px; }.workspace-footer span:nth-child(2) { display: none; }.panel-toolbar { align-items: flex-start; padding: 15px; }.panel-toolbar .search-field { width: 46%; }.cycle-row { gap: 9px; padding: 13px 14px; }.cycle-status-select { max-width: 90px; }.data-form { grid-template-columns: 1fr; padding: 8px 15px 16px; }.field-wide, .form-actions { grid-column: auto; }.form-actions { flex-wrap: wrap; }.form-actions .button { flex: 1; }.editor-panel .panel-toolbar { padding: 15px; }.data-error { align-items: flex-start; flex-wrap: wrap; }.data-error span { flex-basis: 100%; }.data-error button { margin-left: auto; }.table-wrap table { min-width: 670px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
+/* Password visibility toggle in auth forms */
+.eye-toggle {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  margin-left: -8px;
+  flex-shrink: 0;
+  transition: color .15s ease;
+}
+.eye-toggle:hover { color: var(--ink); }
+
 /* ==========================================================================
    MARKETING PAGE STYLES
    ========================================================================== */

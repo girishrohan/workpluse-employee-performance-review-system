@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { ArrowRight, LockKeyhole, Mail } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 type AuthMode = "login" | "sign-up";
@@ -13,6 +13,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const isSignup = mode === "sign-up";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -84,7 +85,16 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
           <form className="auth-form" onSubmit={handleSubmit}>
             {isSignup && <label className="field"><span>Your name</span><input name="name" autoComplete="name" placeholder="Jordan Lee" required /></label>}
             <label className="field"><span>Email address</span><span className="input-wrap"><Mail size={17} aria-hidden="true" /><input name="email" type="email" autoComplete="email" placeholder="you@company.com" required /></span></label>
-            <label className="field"><span>Password</span><span className="input-wrap"><LockKeyhole size={17} aria-hidden="true" /><input name="password" type="password" autoComplete={isSignup ? "new-password" : "current-password"} placeholder={isSignup ? "At least 8 characters" : "Enter your password"} minLength={8} required /></span></label>
+            <label className="field">
+              <span>Password</span>
+              <span className="input-wrap">
+                <LockKeyhole size={17} aria-hidden="true" />
+                <input name="password" type={showPassword ? "text" : "password"} autoComplete={isSignup ? "new-password" : "current-password"} placeholder={isSignup ? "At least 8 characters" : "Enter your password"} minLength={8} required />
+                <button type="button" className="eye-toggle" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(!showPassword)}>
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </span>
+            </label>
             <button className="button button-primary button-full" type="submit" disabled={pending}>{pending ? "Please wait…" : isSignup ? "Create account" : "Sign in"}<ArrowRight size={17} aria-hidden="true" /></button>
           </form>
           <p className="auth-switch">{isSignup ? "Already have an account?" : "New to WorkPulse?"} <Link href={isSignup ? "/auth/login" : "/auth/sign-up"}>{isSignup ? "Sign in" : "Create an account"}</Link></p>
