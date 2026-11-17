@@ -97,7 +97,8 @@ WorkPulse departs from typical generic dashboard templates through an art-direct
 
 ## 3. Technology Stack
 
-* **Frontend / UI:** Streamlit (v1.40+), Custom Modern CSS Design System, Google Fonts (Inter), SVG Icon Primitives
+* **Web Frontend:** Next.js App Router, React, TypeScript, Supabase Auth, responsive WorkPulse design system
+* **Legacy Local UI:** Streamlit (v1.40+), Plotly, custom CSS, SVG icon primitives
 * **Data Visualization:** Plotly Express & Plotly Graph Objects (Custom WorkPulse White Theme)
 * **Backend Logic & Data Processing:** Python 3.10+, Pandas, NumPy
 * **Machine Learning:** Scikit-learn (Decision Tree Classifier, Random Forest Classifier, Preprocessing Pipelines)
@@ -109,7 +110,8 @@ WorkPulse departs from typical generic dashboard templates through an art-direct
 ## 4. Project Layout
 
 ```text
-├── app.py                         # Streamlit application entry point
+├── app.py                         # Legacy local Streamlit application entry point
+├── app/                           # Vercel Next.js App Router
 ├── workpulse_ui.py                # Main navigation, UI components & page renderers
 ├── ui_components.py               # Reusable visual primitives & SVG icon registry
 ├── styles.css                     # Custom enterprise CSS design system
@@ -222,73 +224,26 @@ When presenting WorkPulse to evaluators or professors:
 
 ---
 
-## 8. Supabase Production Deployment
+## 8. Vercel Deployment (Next.js + Supabase)
 
-WorkPulse supports production deployment to Vercel with Supabase PostgreSQL backend for persistent, serverless data storage.
+The Vercel application is the Next.js App Router project at the repository root. The existing Streamlit application remains available for local use, but is not the Vercel runtime. Vercel is configured explicitly to build the Next.js app; `app.py` is not a Python Function entry point.
 
-### Prerequisites
+### Data and authentication
 
-1. **Supabase Project:** Create a project at https://supabase.com
-2. **API Keys:** Get from Supabase Dashboard → Settings → API:
-   - `SUPABASE_URL` - Project URL
-   - `SUPABASE_ANON_KEY` - Anonymous key (client-side)
-   - `SUPABASE_SERVICE_KEY` - Service key (server-side only!)
+The web app uses Supabase Auth with email and password. Employees, review cycles, and assessments are stored in the `workpulse_*` tables. Row Level Security scopes every record to the authenticated owner, and composite foreign keys keep an assessment tied to records owned by the same user. The app does not seed demo employees or use SQLite for deployed data.
 
-### Environment Variables for Vercel
+The Supabase integration supplies `NEXT_PUBLIC_SUPABASE_URL` and a publishable/anon key. In v0 these values are provisioned for the project. In another deployment environment, configure `NEXT_PUBLIC_SUPABASE_URL` and either `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` or `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Never expose a service-role key to browser code.
 
-Set these in Vercel → Project Settings → Environment Variables:
+### Deploy
 
-| Variable | Value | Description |
-|----------|-------|-------------|
-| `DATABASE_PROVIDER` | `supabase` | Enable Supabase backend |
-| `SUPABASE_URL` | `https://xxx.supabase.co` | Your Supabase project URL |
-| `SUPABASE_ANON_KEY` | `public-anon-key` | Anonymous key for public queries |
-| `SUPABASE_SERVICE_KEY` | `service-role-key` | **Secret key for admin operations** |
-| `SUPABASE_JWT_SECRET` | `your-jwt-secret` | For JWT token validation |
+1. Connect this repository to Vercel with the project root set to the repository root.
+2. Ensure the Supabase environment variables are configured for the deployment environment.
+3. Deploy. Vercel detects the `nextjs` framework from `vercel.json` and builds the root Next.js application.
+4. Users create an account and confirm their email before signing in. Their workspace data is private to their authenticated account.
 
-### Database Initialization
+### Local development
 
-Run the seeding script to populate your Supabase database:
+- Web app: `npm install`, then `npm run dev`.
+- Legacy Streamlit app: install `requirements.txt`, then run `streamlit run app.py`.
 
-```bash
-# Set environment
-export DATABASE_PROVIDER=supabase
-export SUPABASE_URL="https://xxx.supabase.co"
-export SUPABASE_SERVICE_KEY="your-service-key"
-
-# Run seeds
-python -c "from database.seed_supabase import run_all_seeders; run_all_seeders()"
-```
-
-Or use the API:
-
-```bash
-# Seed demo data via API
-curl -X POST https://your-vercel-app.vercel.app/api/demo/seed
-```
-
-### Deployment Flow
-
-1. Push code to GitHub
-2. Import repository in Vercel
-3. Set environment variables (see above)
-4. Vercel auto-builds and deploys
-5. First request initializes the database
-
-### API Endpoints for Supabase Mode
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/health` | GET | Health check with DB provider info |
-| `/api/employees` | GET/POST | Employee directory management |
-| `/api/assessments` | GET/POST | Review assessment records |
-| `/api/periods` | GET/POST | Review cycle management |
-| `/api/analytics` | GET | Workforce KPIs and benchmarks |
-| `/api/predictions/predict` | POST | ML inference endpoint |
-
-### Key Architecture Notes
-
-- **Server-Side Only:** Service key is never exposed to browsers
-- **RLS Policies:** Supabase Row Level Security is configured for data isolation
-- **Hybrid Auth:** Falls back to SQLite auth if Supabase not configured
-- **WSGI Ready:** Exports `app`, `application`, `handler` for Vercel serverless
+The web migration currently covers the workspace dashboard, employee directory, review cycles, and assessment history. The legacy Streamlit-only analytics, ML prediction, report export, notification, and admin modules are not yet part of the Next.js interface.
