@@ -72,7 +72,7 @@ def setup_schema():
 
 
 def seed_auth_users():
-    """Seed default auth users into Supabase Auth."""
+    """Seed default auth users into Supabase Auth and local users table."""
     print("\n[AUTH] Seeding default auth users...")
 
     try:
@@ -108,18 +108,21 @@ def seed_auth_users():
             email = account["email"]
             password = account["password"]
             user_metadata = account["user_metadata"]
+            role = user_metadata.get("role", "employee")
 
             try:
-                # Check if user already exists
+                # Check if user already exists in auth.users
                 response = client.auth.admin.list_users()
                 existing = next((u for u in response if u.email == email), None)
 
+                user_id = None
                 if existing:
-                    print(f"[SKIP] User already exists: {email}")
+                    print(f"[SKIP] User already exists in auth: {email}")
+                    user_id = existing.id
                     skipped_count += 1
                     continue
 
-                # Create user
+                # Create user in Supabase Auth
                 result = client.auth.admin.create_user({
                     "email": email,
                     "password": password,
@@ -128,10 +131,25 @@ def seed_auth_users():
                 })
 
                 if result.user:
-                    print(f"[OK] Created user: {email}")
+                    print(f"[OK] Created auth user: {email}")
+                    user_id = result.user.id
                     created_count += 1
                 else:
                     print(f"[FAIL] Failed to create user: {email}")
+                    continue
+
+                # Insert record into local users table for RLS
+                if user_id:
+                    full_name = user_metadata.get("full_name", "")
+                    insert_result = client.from_("users").insert({
+                        "id": user_id,
+                        "role": role,
+                        "full_name": full_name
+                    }).execute()
+                    if insert_result.data:
+                        print(f"[OK] Created users table record for: {email}")
+                    else:
+                        print(f"[SKIP] users table record already exists for: {email}")
 
             except Exception as e:
                 print(f"[ERROR] Failed to create user {email}: {e}")

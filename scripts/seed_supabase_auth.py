@@ -84,7 +84,7 @@ def check_environment():
 
 
 def seed_auth_users():
-    """Create default users in Supabase Auth."""
+    """Create default users in Supabase Auth and local users table."""
     url = os.environ.get("SUPABASE_URL")
     service_key = os.environ.get("SUPABASE_SERVICE_KEY")
 
@@ -99,31 +99,49 @@ def seed_auth_users():
         email = account["email"]
         password = account["password"]
         user_metadata = account["user_metadata"]
+        role = user_metadata.get("role", "employee")
 
         try:
-            # Check if user already exists
+            # Check if user already exists in auth.users
             response = client.auth.admin.list_users()
             existing = next((u for u in response if u.email == email), None)
 
+            user_id = None
             if existing:
-                print(f"[SKIP] User already exists: {email} (ID: {existing.id})")
+                print(f"[SKIP] User already exists in auth: {email} (ID: {existing.id})")
+                user_id = existing.id
                 skipped_count += 1
-                continue
-
-            # Create user
-            result = client.auth.admin.create_user({
-                "email": email,
-                "password": password,
-                "email_confirm": True,  # Auto-confirm email
-                "user_metadata": user_metadata
-            })
-
-            if result.user:
-                print(f"[OK] Created user: {email} (ID: {result.user.id})")
-                created_count += 1
             else:
-                print(f"[FAIL] Failed to create user: {email}")
-                failed_count += 1
+                # Create user in Supabase Auth
+                result = client.auth.admin.create_user({
+                    "email": email,
+                    "password": password,
+                    "email_confirm": True,  # Auto-confirm email
+                    "user_metadata": user_metadata
+                })
+
+                if result.user:
+                    print(f"[OK] Created auth user: {email} (ID: {result.user.id})")
+                    user_id = result.user.id
+                    created_count += 1
+                else:
+                    print(f"[FAIL] Failed to create auth user: {email}")
+                    failed_count += 1
+                    continue
+
+            # Insert record into local users table for RLS
+            if user_id:
+                full_name = user_metadata.get("full_name", "")
+                insert_data = {
+                    "id": user_id,
+                    "role": role,
+                    "full_name": full_name
+                }
+                result = client.from_("users").insert(insert_data).execute()
+                if result.data:
+                    print(f"[OK] Created users table record for: {email}")
+                else:
+                    print(f"[SKIP] users table record already exists for: {email}")
 
         except Exception as e:
             print(f"[ERROR] Failed to create user {email}: {e}")

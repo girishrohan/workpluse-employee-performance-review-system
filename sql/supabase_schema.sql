@@ -5,6 +5,34 @@
 -- Note: RLS policies are defined after tables for clarity
 
 -- ============================================================================
+-- Users Table (links Supabase Auth users to roles for RLS)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'hr', 'employee')),
+    full_name VARCHAR(255),
+    employee_code VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS on users table
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+-- Users table security policies
+CREATE POLICY "users_admin_all" ON users
+    FOR ALL TO authenticated USING (role = 'admin');
+
+CREATE POLICY "users_self_or_admin" ON users
+    FOR SELECT TO authenticated USING (id = auth.uid() OR role = 'admin');
+
+CREATE POLICY "users_hr_access" ON users
+    FOR SELECT TO authenticated USING (role IN ('admin', 'hr'));
+
+-- Index for faster lookups by auth uid
+CREATE INDEX IF NOT EXISTS idx_users_id ON users(id);
+
+-- ============================================================================
 -- Employees Table
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS employees (
