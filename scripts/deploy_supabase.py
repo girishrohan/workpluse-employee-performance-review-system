@@ -6,8 +6,10 @@ This script helps deploy the WorkPulse application to Vercel with Supabase.
 
 Usage:
     python scripts/deploy_supabase.py --setup-schema
+    python scripts/deploy_supabase.py --seed-auth-users
     python scripts/deploy_supabase.py --seed-data
     python scripts/deploy_supabase.py --verify
+    python scripts/deploy_supabase.py --all
 """
 
 import os
@@ -58,27 +60,96 @@ def setup_schema():
         print(f"[FAIL] Schema file not found: {schema_path}")
         return False
 
+    print(f"Schema file location: {schema_path}")
+    print("\nPlease apply the schema to your Supabase project via:")
+    print("  1. Supabase Dashboard -> SQL Editor")
+    print(f"  2. Paste the contents of {schema_path}")
+    print("  3. Click 'Run'")
+    print("\nOr use the Supabase CLI:")
+    print("  supabase db push --from-file sql/supabase_schema.sql")
+
+    return True
+
+
+def seed_auth_users():
+    """Seed default auth users into Supabase Auth."""
+    print("\n[AUTH] Seeding default auth users...")
+
     try:
-        from database.supabase_client import get_supabase_client
+        from supabase import create_client
 
-        client = get_supabase_client(use_service_key=True)
+        url = os.environ.get("SUPABASE_URL")
+        service_key = os.environ.get("SUPABASE_SERVICE_KEY")
 
-        # Read and execute schema (via SQL editor or manual application)
-        print(f"Schema file location: {schema_path}")
-        print("\nPlease apply the schema to your Supabase project via:")
-        print("  1. Supabase Dashboard -> SQL Editor")
-        print(f"  2. Paste the contents of {schema_path}")
-        print("  3. Click 'Run'")
-        print("\nOr use the Supabase CLI:")
-        print("  supabase db push --from-file sql/supabase_schema.sql")
+        client = create_client(url, service_key)
 
-        return True
+        default_accounts = [
+            {
+                "email": "admin@workpulse.local",
+                "password": "Admin@WorkPulse2024",
+                "user_metadata": {"role": "admin", "full_name": "System Administrator"}
+            },
+            {
+                "email": "hr@workpulse.local",
+                "password": "Hr@WorkPulse2024",
+                "user_metadata": {"role": "hr", "full_name": "HR Manager"}
+            },
+            {
+                "email": "employee@workpulse.local",
+                "password": "Emp@WorkPulse2024",
+                "user_metadata": {"role": "employee", "full_name": "Demo Employee"}
+            }
+        ]
+
+        created_count = 0
+        skipped_count = 0
+
+        for account in default_accounts:
+            email = account["email"]
+            password = account["password"]
+            user_metadata = account["user_metadata"]
+
+            try:
+                # Check if user already exists
+                response = client.auth.admin.list_users()
+                existing = next((u for u in response if u.email == email), None)
+
+                if existing:
+                    print(f"[SKIP] User already exists: {email}")
+                    skipped_count += 1
+                    continue
+
+                # Create user
+                result = client.auth.admin.create_user({
+                    "email": email,
+                    "password": password,
+                    "email_confirm": True,
+                    "user_metadata": user_metadata
+                })
+
+                if result.user:
+                    print(f"[OK] Created user: {email}")
+                    created_count += 1
+                else:
+                    print(f"[FAIL] Failed to create user: {email}")
+
+            except Exception as e:
+                print(f"[ERROR] Failed to create user {email}: {e}")
+
+        print(f"\nAuth seeding complete: {created_count} created, {skipped_count} skipped")
+
+        if created_count > 0 or skipped_count == len(default_accounts):
+            print("\nYou can now log in with:")
+            for acc in default_accounts:
+                print(f"  {acc['email']} / {acc['password']}")
+            return True
+        return False
 
     except ImportError as e:
-        print(f"[FAIL] Failed to import Supabase client: {e}")
+        print(f"[FAIL] Failed to import supabase package: {e}")
         return False
     except Exception as e:
-        print(f"[FAIL] Error connecting to Supabase: {e}")
+        print(f"[FAIL] Error seeding auth users: {e}")
         return False
 
 
@@ -175,6 +246,11 @@ def main():
         help="Set up Supabase database schema"
     )
     parser.add_argument(
+        "--seed-auth-users",
+        action="store_true",
+        help="Seed default auth users into Supabase Auth"
+    )
+    parser.add_argument(
         "--seed-data",
         action="store_true",
         help="Seed demo data into the database"
@@ -187,7 +263,7 @@ def main():
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Run all deployment steps"
+        help="Run all deployment steps (schema, auth users, data, verify)"
     )
 
     args = parser.parse_args()
@@ -195,6 +271,7 @@ def main():
     if args.all:
         success = True
         success &= setup_schema()
+        success &= seed_auth_users()
         success &= seed_data()
         success &= verify_deployment()
         sys.exit(0 if success else 1)
@@ -202,6 +279,8 @@ def main():
     success = True
     if args.setup_schema:
         success &= setup_schema()
+    if args.seed_auth_users:
+        success &= seed_auth_users()
     if args.seed_data:
         success &= seed_data()
     if args.verify:

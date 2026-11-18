@@ -247,3 +247,32 @@ The Supabase integration supplies `NEXT_PUBLIC_SUPABASE_URL` and a publishable/a
 - Legacy Streamlit app: install `requirements.txt`, then run `streamlit run app.py`.
 
 The web migration currently covers the workspace dashboard, employee directory, review cycles, and assessment history. The legacy Streamlit-only analytics, ML prediction, report export, notification, and admin modules are not yet part of the Next.js interface.
+
+### Supabase Auth User Seeding (Next.js Web App)
+
+The Next.js web app uses **Supabase Auth** for authentication. By default, no users exist in Supabase Auth. You must seed the default accounts before you can log in.
+
+**Default credentials (matching the Streamlit app):**
+- Admin: `admin@workpulse.local` / `Admin@WorkPulse2024`
+- HR: `hr@workpulse.local` / `Hr@WorkPulse2024`
+- Employee: `employee@workpulse.local` / `Emp@WorkPulse2024`
+
+**To seed Supabase Auth users:**
+
+1. Create a Supabase project at https://supabase.com
+2. Run the schema from `sql/supabase_schema.sql` in the Supabase SQL Editor
+3. Copy your project URL and Service Role Key to `.env`:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+   SUPABASE_SERVICE_KEY=your-service-role-key
+   ```
+4. Run the seeding script:
+   ```bash
+   python scripts/seed_supabase_auth.py
+   ```
+
+   This creates the three default accounts in Supabase Auth with auto-confirmed emails.
+
+**Alternative: Self-service signup**
+Users can also create their own accounts via the "Create account" link on the login page. New accounts require email confirmation before signing in.
