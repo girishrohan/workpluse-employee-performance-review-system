@@ -76,7 +76,7 @@ export function WorkspaceView({ section }: { section: WorkspaceSection }) {
     const supabase = createClient();
     const result = employeeEditor
       ? await supabase.from("workpulse_employees").update(values).eq("id", employeeEditor.id)
-      : await supabase.from("workpulse_employees").insert({ ...values, user_id: (await supabase.auth.getUser()).data.user?.id });
+      : await supabase.from("workpulse_employees").insert({ ...values, user_id: userId });
     if (result.error) { setNotice(result.error.code === "23505" ? "That employee ID is already in use." : "We couldn’t save this employee. Check the details and try again."); return; }
     await mutate();
     setEmployeeEditor(false);
@@ -95,9 +95,8 @@ export function WorkspaceView({ section }: { section: WorkspaceSection }) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
     const { error: saveError } = await supabase.from("workpulse_review_cycles").insert({
-      user_id: user?.id,
+      user_id: userId,
       name: String(form.get("name")).trim(),
       starts_on: String(form.get("starts_on")),
       ends_on: String(form.get("ends_on")),
@@ -128,9 +127,8 @@ export function WorkspaceView({ section }: { section: WorkspaceSection }) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
     const { error: saveError } = await supabase.from("workpulse_assessments").insert({
-      user_id: user?.id,
+      user_id: userId,
       employee_id: String(form.get("employee_id")),
       cycle_id: String(form.get("cycle_id")),
       reviewer: String(form.get("reviewer")).trim(),

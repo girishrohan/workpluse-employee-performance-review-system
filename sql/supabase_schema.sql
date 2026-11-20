@@ -33,6 +33,70 @@ CREATE POLICY "users_hr_access" ON users
 CREATE INDEX IF NOT EXISTS idx_users_id ON users(id);
 
 -- ============================================================================
+-- Trigger Function for updated_at (run once)
+-- ============================================================================
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$;
+
+-- ============================================================================
+-- Trigger Function: Auto-create user row on Supabase Auth signup
+-- This ensures RLS policies work immediately for new users
+-- ============================================================================
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_role VARCHAR(20) := 'employee';
+  v_full_name VARCHAR(255);
+  v_employee_code VARCHAR(50);
+BEGIN
+  -- Determine role from user metadata or email
+  -- admin@workpulse.local gets admin role automatically
+  IF NEW.email = 'admin@workpulse.local' THEN
+    v_role := 'admin';
+  ELSIF NEW.raw_user_meta_data ? 'role' THEN
+    v_role := NEW.raw_user_meta_data->>'role';
+  END IF;
+
+  -- Get full name from metadata or email
+  v_full_name := COALESCE(
+    NEW.raw_user_meta_data->>'full_name',
+    NEW.raw_user_meta_data->>'name',
+    SPLIT_PART(NEW.email, '@', 1)
+  );
+
+  -- Get employee code from metadata if provided
+  v_employee_code := NEW.raw_user_meta_data->>'employee_code';
+
+  -- Insert into users table
+  INSERT INTO users (id, role, full_name, employee_code)
+  VALUES (NEW.id, v_role, v_full_name, v_employee_code)
+  ON CONFLICT (id) DO UPDATE SET
+    role = EXCLUDED.role,
+    full_name = EXCLUDED.full_name,
+    employee_code = EXCLUDED.employee_code,
+    updated_at = NOW();
+
+  RETURN NEW;
+END;
+$$;
+
+-- Trigger on auth.users to auto-create user row
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- ============================================================================
 -- Employees Table
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS employees (
@@ -51,17 +115,11 @@ CREATE TABLE IF NOT EXISTS employees (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Create trigger for updated_at
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
-CREATE TRIGGER update_employees_updated_at BEFORE UPDATE
-    ON employees FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+-- Trigger for employees table
+DROP TRIGGER IF EXISTS update_employees_updated_at ON employees;
+CREATE TRIGGER update_employees_updated_at
+    BEFORE UPDATE ON employees
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
 -- Performance Records Table (Historical performance data per employee)
@@ -99,6 +157,12 @@ CREATE TABLE IF NOT EXISTS performance_periods (
 CREATE INDEX IF NOT EXISTS idx_performance_periods_status ON performance_periods(status);
 CREATE INDEX IF NOT EXISTS idx_performance_periods_dates ON performance_periods(start_date, end_date);
 
+-- Trigger for performance_periods table
+DROP TRIGGER IF EXISTS update_performance_periods_updated_at ON performance_periods;
+CREATE TRIGGER update_performance_periods_updated_at
+    BEFORE UPDATE ON performance_periods
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ============================================================================
 -- Performance Areas Table (KPI framework)
 -- ============================================================================
@@ -135,6 +199,12 @@ CREATE INDEX IF NOT EXISTS idx_assessments_employee ON assessments(employee_id);
 CREATE INDEX IF NOT EXISTS idx_assessments_period ON assessments(period_id);
 CREATE INDEX IF NOT EXISTS idx_assessments_date ON assessments(assessment_date DESC);
 CREATE INDEX IF NOT EXISTS idx_assessments_overall_score ON assessments(overall_score DESC);
+
+-- Trigger for assessments table
+DROP TRIGGER IF EXISTS update_assessments_updated_at ON assessments;
+CREATE TRIGGER update_assessments_updated_at
+    BEFORE UPDATE ON assessments
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
 -- Model Runs Table
@@ -362,11 +432,12 @@ CREATE OR REPLACE FUNCTION calculate_performance_score(
     p_productivity NUMERIC DEFAULT 85,
     p_teamwork NUMERIC DEFAULT 75,
     p_learning NUMERIC DEFAULT 70
-) RETURNS NUMERIC AS $$
+) RETURNS NUMERIC
+LANGUAGE plpgsql
+AS $$
 DECLARE
     v_score NUMERIC;
 BEGIN
-    -- Weighted calculation based on performance areas
     v_score := (
         (p_attendance * 0.20) +
         (p_task_completion * 0.25) +
@@ -376,7 +447,7 @@ BEGIN
     );
     RETURN ROUND(v_score, 2);
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Function: Get dashboard summary
 CREATE OR REPLACE FUNCTION get_dashboard_summary()
@@ -387,7 +458,9 @@ RETURNS TABLE(
     avg_attendance NUMERIC,
     avg_task_completion NUMERIC,
     avg_score NUMERIC
-) AS $$
+)
+LANGUAGE plpgsql
+AS $$
 BEGIN
     RETURN QUERY
     SELECT
@@ -398,7 +471,7 @@ BEGIN
         ROUND((SELECT AVG(task_completion_rate) FROM performance_records), 2)::NUMERIC,
         ROUND((SELECT AVG(overall_score) FROM assessments), 2)::NUMERIC;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- ============================================================================
 -- Indexes and Constraints
@@ -421,31 +494,27 @@ CREATE INDEX IF NOT EXISTS idx_assessments_employee_period ON assessments(employ
 -- ============================================================================
 
 -- Insert demo employees (only if table is empty)
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM demo_employees) THEN
-        INSERT INTO demo_employees (employee_code, employee_name, department, designation, joining_date, experience_years, attendance_rate, task_completion_rate, training_hours, previous_performance, performance_category) VALUES
-        ('EMP001', 'John Smith', 'Engineering', 'Senior Developer', '2020-01-15', 4.5, 95, 92, 35, 3.8, 'High'),
-        ('EMP002', 'Sarah Johnson', 'Marketing', 'Marketing Specialist', '2021-03-10', 2.8, 88, 85, 28, 3.2, 'Moderate'),
-        ('EMP003', 'Michael Chen', 'Sales', 'Sales Executive', '2019-06-01', 5.2, 92, 89, 42, 3.5, 'High'),
-        ('EMP004', 'Emily Davis', 'HR', 'HR Coordinator', '2022-01-20', 1.5, 82, 78, 15, 2.8, 'Moderate'),
-        ('EMP005', 'David Wilson', 'Engineering', 'QA Engineer', '2020-08-12', 3.8, 78, 85, 30, 3.1, 'Moderate'),
-        ('EMP006', 'Lisa Anderson', 'Product', 'Product Manager', '2018-11-05', 6.0, 90, 88, 50, 3.7, 'High'),
-        ('EMP007', 'Robert Martinez', 'Finance', 'Accountant', '2021-09-15', 3.0, 85, 82, 22, 3.0, 'Moderate'),
-        ('EMP008', 'Jennifer Lee', 'Customer Success', 'Support Specialist', '2022-04-01', 1.8, 80, 85, 18, 2.5, 'Moderate'),
-        ('EMP009', 'Chris Thompson', 'Engineering', 'DevOps Engineer', '2019-04-20', 5.0, 94, 90, 40, 3.9, 'High'),
-        ('EMP010', 'Amanda White', 'Operations', 'Operations Analyst', '2020-12-01', 3.2, 87, 88, 25, 3.3, 'Moderate');
-    END IF;
-END $$;
+INSERT INTO demo_employees (employee_code, employee_name, department, designation, joining_date, experience_years, attendance_rate, task_completion_rate, training_hours, previous_performance, performance_category)
+SELECT * FROM (VALUES
+    ('EMP001', 'John Smith', 'Engineering', 'Senior Developer', '2020-01-15', 4.5, 95, 92, 35, 3.8, 'High'),
+    ('EMP002', 'Sarah Johnson', 'Marketing', 'Marketing Specialist', '2021-03-10', 2.8, 88, 85, 28, 3.2, 'Moderate'),
+    ('EMP003', 'Michael Chen', 'Sales', 'Sales Executive', '2019-06-01', 5.2, 92, 89, 42, 3.5, 'High'),
+    ('EMP004', 'Emily Davis', 'HR', 'HR Coordinator', '2022-01-20', 1.5, 82, 78, 15, 2.8, 'Moderate'),
+    ('EMP005', 'David Wilson', 'Engineering', 'QA Engineer', '2020-08-12', 3.8, 78, 85, 30, 3.1, 'Moderate'),
+    ('EMP006', 'Lisa Anderson', 'Product', 'Product Manager', '2018-11-05', 6.0, 90, 88, 50, 3.7, 'High'),
+    ('EMP007', 'Robert Martinez', 'Finance', 'Accountant', '2021-09-15', 3.0, 85, 82, 22, 3.0, 'Moderate'),
+    ('EMP008', 'Jennifer Lee', 'Customer Success', 'Support Specialist', '2022-04-01', 1.8, 80, 85, 18, 2.5, 'Moderate'),
+    ('EMP009', 'Chris Thompson', 'Engineering', 'DevOps Engineer', '2019-04-20', 5.0, 94, 90, 40, 3.9, 'High'),
+    ('EMP010', 'Amanda White', 'Operations', 'Operations Analyst', '2020-12-01', 3.2, 87, 88, 25, 3.3, 'Moderate')
+) AS v(employee_code, employee_name, department, designation, joining_date, experience_years, attendance_rate, task_completion_rate, training_hours, previous_performance, performance_category)
+WHERE NOT EXISTS (SELECT 1 FROM demo_employees);
 
 -- Insert sample performance periods
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM performance_periods) THEN
-        INSERT INTO performance_periods (name, start_date, end_date, status) VALUES
-        ('Q1 2024 Review', '2024-01-01', '2024-03-31', 'Completed'),
-        ('Q2 2024 Review', '2024-04-01', '2024-06-30', 'Completed'),
-        ('Q3 2024 Review', '2024-07-01', '2024-09-30', 'Active'),
-        ('Q4 2024 Review', '2024-10-01', '2024-12-31', 'Draft');
-    END IF;
-END $$;
+INSERT INTO performance_periods (name, start_date, end_date, status)
+SELECT * FROM (VALUES
+    ('Q1 2024 Review', '2024-01-01', '2024-03-31', 'Completed'),
+    ('Q2 2024 Review', '2024-04-01', '2024-06-30', 'Completed'),
+    ('Q3 2024 Review', '2024-07-01', '2024-09-30', 'Active'),
+    ('Q4 2024 Review', '2024-10-01', '2024-12-31', 'Draft')
+) AS v(name, start_date, end_date, status)
+WHERE NOT EXISTS (SELECT 1 FROM performance_periods);

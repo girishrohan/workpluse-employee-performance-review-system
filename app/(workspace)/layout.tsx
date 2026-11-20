@@ -1,12 +1,20 @@
 import { redirect } from "next/navigation";
 import { WorkspaceShell } from "@/components/workspace-shell";
-import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth/session";
 
 export default async function WorkspaceLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const session = await getSession();
 
-  if (!user) redirect("/auth/login");
+  if (!session) redirect("/auth/login");
 
-  return <WorkspaceShell email={user.email ?? ""} userId={user.id}>{children}</WorkspaceShell>;
+  return (
+    <WorkspaceShell
+      email={session.email}
+      userId={session.userId}
+      role={session.role}
+      fullName={session.fullName}
+    >
+      {children}
+    </WorkspaceShell>
+  );
 }

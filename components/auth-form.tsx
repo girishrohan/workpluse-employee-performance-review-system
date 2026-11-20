@@ -1,20 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, AlertCircle } from "lucide-react";
 
 type AuthMode = "login" | "sign-up";
 
+function getAuthErrorMessage(message: string, isSignup: boolean): string {
+  const msg = message.toLowerCase();
+  
+  if (isSignup) {
+    if (msg.includes("password")) return "Password must be at least 8 characters long.";
+    if (msg.includes("already exists")) return "An account with this email already exists. Try signing in instead.";
+    if (msg.includes("invalid email")) return "Please enter a valid email address.";
+    return "We couldn't create your account. Please check your details and try again.";
+  } else {
+    if (msg.includes("invalid email or password")) return "Invalid email or password. Please check your credentials and try again.";
+    return "We couldn't sign you in right now. Please try again.";
+  }
+}
+
 export function AuthForm({ mode }: { mode: AuthMode }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const isSignup = mode === "sign-up";
+
+  // Check for URL-based error messages (from redirect)
+  const urlError = searchParams.get('error');
+  const urlMessage = searchParams.get('message');
+  if (urlError && urlMessage && !error) {
+    setError(urlMessage);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -24,42 +45,36 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") ?? "").trim();
     const password = String(form.get("password") ?? "");
-    const supabase = createClient();
 
+    const endpoint = isSignup ? "/api/auth/register" : "/api/auth/login";
+    const body: Record<string, string> = { email, password };
+    
     if (isSignup) {
-      const { data, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/callback`,
-          data: { display_name: String(form.get("name") ?? "").trim() },
-        },
-      });
-      if (authError) {
-        const detail = authError.message.toLowerCase();
-        setError(detail.includes("password") ? "Choose a stronger password and try again." : detail.includes("rate") ? "Too many attempts. Wait a little while before trying again." : "We couldn’t create your account. Check the details and try again.");
-      } else if (data.session) {
-        router.push("/dashboard");
-        router.refresh();
-      } else {
-        setMessage("Check your inbox for a confirmation link. You can sign in after confirming your email.");
-      }
-    } else {
-      const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
-      if (authError) {
-        setError(authError.message.toLowerCase().includes("not confirmed")
-          ? "Confirm your email from the link we sent before signing in."
-            : authError.message.toLowerCase().includes("invalid login credentials")
-            ? "Invalid email or password."
-            : authError.message.toLowerCase().includes("rate")
-              ? "Too many attempts. Wait a little while before trying again."
-              : "We couldn’t sign you in right now. Please try again.");
-      } else {
-        router.push("/dashboard");
-        router.refresh();
-      }
+      const name = String(form.get("name") ?? "").trim();
+      body.name = name;
     }
-    setPending(false);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(getAuthErrorMessage(data.error || "Authentication failed", isSignup));
+      } else {
+        const next = searchParams.get('next') ?? '/dashboard';
+        router.push(next);
+        router.refresh();
+      }
+    } catch {
+      setError("An unexpected error occurred. Please try again.");
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
@@ -80,8 +95,16 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
           <p className="eyebrow">{isSignup ? "Start your workspace" : "Welcome back"}</p>
           <h1>{isSignup ? "Make room for growth." : "Good to see you."}</h1>
           <p className="auth-copy">{isSignup ? "Create your private performance workspace." : "Sign in to continue to your workspace."}</p>
-          {error && <div className="form-alert form-alert-error" role="alert">{error}</div>}
+          
+          {(error || urlError) && (
+            <div className="form-alert form-alert-error" role="alert">
+              <AlertCircle size={16} aria-hidden="true" />
+              <span>{error || urlMessage}</span>
+            </div>
+          )}
+          
           {message && <div className="form-alert form-alert-success" role="status">{message}</div>}
+          
           <form className="auth-form" onSubmit={handleSubmit}>
             {isSignup && <label className="field"><span>Your name</span><input name="name" autoComplete="name" placeholder="Jordan Lee" required /></label>}
             <label className="field"><span>Email address</span><span className="input-wrap"><Mail size={17} aria-hidden="true" /><input name="email" type="email" autoComplete="email" placeholder="you@company.com" required /></span></label>

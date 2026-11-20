@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { Activity, ArrowUpRight, Bell, CalendarDays, ChevronDown, ClipboardCheck, LayoutDashboard, LogOut, Menu, Users, X } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { Activity, ArrowUpRight, Bell, CalendarDays, ChevronDown, ClipboardCheck, LayoutDashboard, LogOut, Menu, Users, X, Cog } from "lucide-react";
 import { WorkspaceUserProvider } from "@/components/workspace-user";
 
 const navigation = [
@@ -14,14 +13,43 @@ const navigation = [
   { href: "/assessments", label: "Assessments", icon: ClipboardCheck },
 ];
 
-export function WorkspaceShell({ children, email, userId }: { children: React.ReactNode; email: string; userId: string }) {
+const adminNavigation = [
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/employees", label: "Employees", icon: Users },
+  { href: "/cycles", label: "Review cycles", icon: CalendarDays },
+  { href: "/assessments", label: "Assessments", icon: ClipboardCheck },
+  { href: "/settings", label: "Settings", icon: Cog },
+];
+
+export function WorkspaceShell({ children, email, userId, role, fullName }: { children: React.ReactNode; email: string; userId: string; role: string; fullName?: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
 
+  // Determine accessible navigation based on role
+  // role: "admin" - full access, "hr" - HR access, "employee" - limited access
+  const isAdmin = role === "admin";
+  const isHR = role === "hr";
+  const isEmployee = role === "employee" || !role;
+
+  const navigationItems = isAdmin
+    ? adminNavigation
+    : isHR
+      ? [
+          { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+          { href: "/employees", label: "Employees", icon: Users },
+          { href: "/cycles", label: "Review cycles", icon: CalendarDays },
+          { href: "/assessments", label: "Assessments", icon: ClipboardCheck },
+        ]
+      : navigation;
+
   async function signOut() {
-    await createClient().auth.signOut();
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Ignore network errors during logout
+    }
     router.replace("/auth/login");
     router.refresh();
   }
@@ -33,7 +61,7 @@ export function WorkspaceShell({ children, email, userId }: { children: React.Re
         <div className="workspace-switcher"><span className="workspace-avatar">{email.slice(0, 1).toUpperCase()}</span><span className="workspace-name"><strong>My workspace</strong><small>Private workspace</small></span><ChevronDown size={15} aria-hidden="true" /></div>
         <p className="nav-caption">WORKSPACE</p>
         <nav className="side-nav" aria-label="Main navigation">
-          {navigation.map(({ href, label, icon: Icon }) => {
+          {navigationItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || (href === "/dashboard" && pathname === "/");
             return <Link key={href} href={href} onClick={() => setMenuOpen(false)} className={`nav-link ${active ? "nav-link-active" : ""}`} aria-current={active ? "page" : undefined}><Icon size={18} strokeWidth={active ? 2.2 : 1.8} aria-hidden="true" /><span>{label}</span>{active && <span className="nav-active-mark" />}</Link>;
           })}
@@ -46,14 +74,18 @@ export function WorkspaceShell({ children, email, userId }: { children: React.Re
           {accountOpen && <button className="signout-button" type="button" onClick={signOut}><LogOut size={16} aria-hidden="true" /> Sign out</button>}
         </div>
       </aside>
-      {menuOpen && <button className="mobile-backdrop" aria-label="Close menu" onClick={() => setMenuOpen(false)} />}
+      <div className="mobile-menu-backdrop" aria-label="Close menu" onClick={() => setMenuOpen(false)} />
       <div className="main-column">
         <header className="topbar">
           <button className="mobile-menu-toggle" type="button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={20} /> : <Menu size={20} />}</button>
-          <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><strong>{navigation.find((item) => item.href === pathname)?.label ?? "Overview"}</strong></div>
-          <div className="topbar-actions"><span className="secure-label"><span className="secure-dot" /> Private workspace</span><button className="icon-button" type="button" aria-label="Notifications" title="Notifications are coming soon"><Bell size={18} /></button><Link className="help-link" href="/dashboard">Help center <ArrowUpRight size={14} /></Link></div>
+          <div className="breadcrumb"><span>Workspace</span><span className="breadcrumb-slash">/</span><strong>{navigationItems.find((item) => item.href === pathname)?.label ?? "Overview"}</strong></div>
+          <div className="topbar-actions">
+            <span className="secure-label"><span className="secure-dot" /> Private workspace</span>
+            <button className="icon-button" type="button" aria-label="Notifications" title="Notifications are coming soon"><Bell size={18} /></button>
+            <Link className="help-link" href="/dashboard">Help center <ArrowUpRight size={14} /></Link>
+          </div>
         </header>
-        <main className="workspace-main"><WorkspaceUserProvider userId={userId}>{children}</WorkspaceUserProvider></main>
+        <main className="workspace-main"><WorkspaceUserProvider userId={userId} role={role}>{children}</WorkspaceUserProvider></main>
         <footer className="workspace-footer"><span>WorkPulse</span><span>Performance with purpose</span><span>© {new Date().getFullYear()} WorkPulse</span></footer>
       </div>
     </div>
